@@ -11,6 +11,7 @@ from typing import Dict, Optional
 from pathlib import Path
 import ssl
 import urllib3
+from shared.utils.helpers import parse_bool
 
 
 class DocuWareClient:
@@ -39,9 +40,8 @@ class DocuWareClient:
         if not self.docuware:
             raise ValueError("Configuración 'docuware' es requerida")
         
-        # Configuración SSL
-        verify_ssl_str = str(config.get('verifySSL', 'true')).lower()
-        self.verify_ssl = verify_ssl_str in ('true', '1', 'yes', 'on')
+        # Configuración SSL - usar parse_bool para convertir correctamente a bool
+        self.verify_ssl = parse_bool(self.docuware.get('verifySSL', True))
         
         if not self.verify_ssl:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
