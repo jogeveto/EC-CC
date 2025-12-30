@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Union
 
 # ============================================
 # CONFIGURACIÓN DE PATHS (NO MODIFICAR)
@@ -98,6 +98,53 @@ def _inicializar_logger_modulo(config: Dict[str, Any]) -> None:
     
     _logger_configurado = True
 
+
+def _clean_rocketbot_config(config_param: Any) -> Any:
+    """
+    Limpia las llaves dobles de templates de Rocketbot en la configuración.
+    
+    Si Rocketbot pasa la configuración como "{{...JSON...}}", limpia las llaves
+    externas para que pueda ser parseada correctamente como JSON.
+    
+    Args:
+        config_param: Configuración que puede tener llaves dobles de template
+    
+    Returns:
+        Configuración limpia sin llaves dobles externas
+    """
+    if not isinstance(config_param, str):
+        return config_param
+    
+    # Limpiar espacios al inicio y final
+    config_cleaned = config_param.strip()
+    original = config_cleaned
+    
+    # Intentar limpiar llaves dobles múltiples veces (por si hay anidamiento)
+    max_iterations = 3
+    for iteration in range(max_iterations):
+        # Verificar si tiene llaves dobles al inicio y final
+        if not (config_cleaned.startswith("{{") and config_cleaned.endswith("}}")):
+            break
+        
+        # Extraer contenido interno (eliminar {{ y }})
+        inner = config_cleaned[2:-2].strip()
+        
+        # Si el contenido interno parece JSON (empieza y termina con {}),
+        # usar el contenido interno
+        if inner.startswith("{") and inner.endswith("}"):
+            config_cleaned = inner
+            logger.debug(f"[CLEAN_CONFIG] Iteración {iteration + 1}: Limpiadas llaves dobles externas")
+        else:
+            # Si no es JSON válido, podría ser un template de variable
+            # En ese caso, no limpiar más y retornar como está
+            break
+    
+    if config_cleaned != original:
+        logger.debug(f"[CLEAN_CONFIG] Configuración limpiada: {original[:50]}... -> {config_cleaned[:50]}...")
+    
+    return config_cleaned
+
+
 # ============================================
 # PUNTO DE ENTRADA ROCKETBOT
 # ============================================
@@ -119,8 +166,9 @@ try:
         dynamics_url = GetParams("dynamics_url")
         
         try:
-            # Cargar configuración
-            config = load_config_from_param(config_param) if config_param else {}
+            # Cargar configuración (limpiar llaves dobles de Rocketbot si existen)
+            config_param_cleaned = _clean_rocketbot_config(config_param) if config_param else None
+            config = load_config_from_param(config_param_cleaned) if config_param_cleaned else {}
             _inicializar_logger_modulo(config)
             
             # Validar variables requeridas
@@ -196,8 +244,9 @@ try:
         dynamics_url = GetParams("dynamics_url")
         
         try:
-            # Cargar configuración
-            config = load_config_from_param(config_param) if config_param else {}
+            # Cargar configuración (limpiar llaves dobles de Rocketbot si existen)
+            config_param_cleaned = _clean_rocketbot_config(config_param) if config_param else None
+            config = load_config_from_param(config_param_cleaned) if config_param_cleaned else {}
             _inicializar_logger_modulo(config)
             
             # Validar variables requeridas
@@ -260,7 +309,9 @@ try:
         result_var = GetParams("result")
         
         try:
-            config = load_config_from_param(config_param) if config_param else {}
+            # Cargar configuración (limpiar llaves dobles de Rocketbot si existen)
+            config_param_cleaned = _clean_rocketbot_config(config_param) if config_param else None
+            config = load_config_from_param(config_param_cleaned) if config_param_cleaned else {}
             _inicializar_logger_modulo(config)
             
             db_config = config.get("database", {})
