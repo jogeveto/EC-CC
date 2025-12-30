@@ -1,0 +1,6 @@
+playwright
+python-dateutil
+pyodbc
+rapidfuzz
+python-dotenv
+
