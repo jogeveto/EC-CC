@@ -221,16 +221,42 @@ try:
         dynamics_url = GetVar("dynamics_url")  # type: ignore[name-defined]
         
         # Limpiar valores de espacios en blanco y comillas
-        def _clean_value(value):
-            if value:
-                cleaned = str(value).strip()
-                # Eliminar comillas al inicio y final si existen
-                if cleaned.startswith('"') and cleaned.endswith('"'):
-                    cleaned = cleaned[1:-1].strip()
-                elif cleaned.startswith("'") and cleaned.endswith("'"):
-                    cleaned = cleaned[1:-1].strip()
-                return cleaned
-            return value
+        # IMPORTANTE: Esta función preserva caracteres especiales como ~, -, _, etc.
+        # que son comunes en client secrets de Azure
+        def _clean_value(value: str) -> str:
+            """
+            Limpia valores de espacios y comillas, preservando caracteres especiales.
+            
+            Args:
+                value: Valor a limpiar
+                
+            Returns:
+                Valor limpiado
+            """
+            if not value:
+                return value
+            
+            # Guardar valor original para logging
+            original_value = str(value)
+            original_length = len(original_value)
+            
+            cleaned = original_value.strip()
+            
+            # Eliminar comillas al inicio y final si existen
+            if cleaned.startswith('"') and cleaned.endswith('"'):
+                cleaned = cleaned[1:-1].strip()
+            elif cleaned.startswith("'") and cleaned.endswith("'"):
+                cleaned = cleaned[1:-1].strip()
+            
+            # Logging si hay cambios significativos (solo para diagnóstico)
+            if len(cleaned) != original_length:
+                logger.debug(f"[CLEAN_VALUE] Valor limpiado: longitud original={original_length}, longitud final={len(cleaned)}")
+            
+            # Detectar caracteres problemáticos
+            if '\n' in cleaned or '\r' in cleaned:
+                logger.warning(f"[CLEAN_VALUE] Valor contiene caracteres de nueva línea! repr: {repr(cleaned[:50])}")
+            
+            return cleaned
         
         subcategorias_ids = _clean_value(subcategorias_ids)
         invt_especificacion = _clean_value(invt_especificacion)
@@ -258,6 +284,30 @@ try:
             if not dynamics_url or dynamics_url == "":
                 raise ValueError("Variable 'dynamics_url' no encontrada o vacía en Rocketbot")
             
+            # Validar longitud mínima del secret (los secrets de Azure suelen tener al menos 20 caracteres)
+            if len(dynamics_client_secret) < 20:
+                logger.warning(f"[SECRET_VALIDATION] El client_secret tiene solo {len(dynamics_client_secret)} caracteres. Esto podría indicar un problema de configuración.")
+            
+            # Logging seguro del secret (solo primeros y últimos caracteres para diagnóstico)
+            # Usar INFO en lugar de DEBUG para que siempre se muestre
+            secret_preview = ""
+            if len(dynamics_client_secret) >= 8:
+                secret_preview = f"{dynamics_client_secret[:4]}...{dynamics_client_secret[-4:]}"
+            else:
+                secret_preview = "[SECRET DEMASIADO CORTO]"
+            
+            logger.info(f"[CREDENTIALS] Configuración de Dynamics 365: tenant_id={dynamics_tenant_id[:8]}..., client_id={dynamics_client_id[:8]}..., secret_length={len(dynamics_client_secret)}, url={dynamics_url}")
+            logger.info(f"[SECRET_PREVIEW] Secret: {secret_preview} (longitud: {len(dynamics_client_secret)})")
+            
+            # Verificar si hay caracteres problemáticos
+            if '\n' in dynamics_client_secret or '\r' in dynamics_client_secret:
+                logger.warning("[SECRET_WARNING] El secret contiene caracteres de nueva línea!")
+            if dynamics_client_secret != dynamics_client_secret.strip():
+                logger.warning("[SECRET_WARNING] El secret contiene espacios al inicio o final!")
+            
+            # Mostrar representación para detectar caracteres invisibles (solo primeros 30 caracteres)
+            logger.info(f"[SECRET_REPR] repr(secret[:30]): {repr(dynamics_client_secret[:30])}")
+            
             # Obtener configuración de BD desde variables de Rocketbot
             db_config = _load_database_config_from_rocketbot()
             
@@ -268,6 +318,7 @@ try:
             from DynamicsCrmApi.services.pqrs_service import PqrsService
             
             # Crear autenticador y cliente
+            logger.info("[AUTH] Creando autenticador de Dynamics 365...")
             authenticator = Dynamics365Authenticator(
                 tenant_id=dynamics_tenant_id,
                 client_id=dynamics_client_id,
@@ -314,16 +365,42 @@ try:
         dynamics_url = GetVar("dynamics_url")  # type: ignore[name-defined]
         
         # Limpiar valores de espacios en blanco y comillas
-        def _clean_value(value):
-            if value:
-                cleaned = str(value).strip()
-                # Eliminar comillas al inicio y final si existen
-                if cleaned.startswith('"') and cleaned.endswith('"'):
-                    cleaned = cleaned[1:-1].strip()
-                elif cleaned.startswith("'") and cleaned.endswith("'"):
-                    cleaned = cleaned[1:-1].strip()
-                return cleaned
-            return value
+        # IMPORTANTE: Esta función preserva caracteres especiales como ~, -, _, etc.
+        # que son comunes en client secrets de Azure
+        def _clean_value(value: str) -> str:
+            """
+            Limpia valores de espacios y comillas, preservando caracteres especiales.
+            
+            Args:
+                value: Valor a limpiar
+                
+            Returns:
+                Valor limpiado
+            """
+            if not value:
+                return value
+            
+            # Guardar valor original para logging
+            original_value = str(value)
+            original_length = len(original_value)
+            
+            cleaned = original_value.strip()
+            
+            # Eliminar comillas al inicio y final si existen
+            if cleaned.startswith('"') and cleaned.endswith('"'):
+                cleaned = cleaned[1:-1].strip()
+            elif cleaned.startswith("'") and cleaned.endswith("'"):
+                cleaned = cleaned[1:-1].strip()
+            
+            # Logging si hay cambios significativos (solo para diagnóstico)
+            if len(cleaned) != original_length:
+                logger.debug(f"[CLEAN_VALUE] Valor limpiado: longitud original={original_length}, longitud final={len(cleaned)}")
+            
+            # Detectar caracteres problemáticos
+            if '\n' in cleaned or '\r' in cleaned:
+                logger.warning(f"[CLEAN_VALUE] Valor contiene caracteres de nueva línea! repr: {repr(cleaned[:50])}")
+            
+            return cleaned
         
         subcategoria_name = _clean_value(subcategoria_name)
         dynamics_tenant_id = _clean_value(dynamics_tenant_id)
@@ -347,6 +424,30 @@ try:
             if not dynamics_url or dynamics_url == "":
                 raise ValueError("Variable 'dynamics_url' no encontrada o vacía en Rocketbot")
             
+            # Validar longitud mínima del secret (los secrets de Azure suelen tener al menos 20 caracteres)
+            if len(dynamics_client_secret) < 20:
+                logger.warning(f"[SECRET_VALIDATION] El client_secret tiene solo {len(dynamics_client_secret)} caracteres. Esto podría indicar un problema de configuración.")
+            
+            # Logging seguro del secret (solo primeros y últimos caracteres para diagnóstico)
+            # Usar INFO en lugar de DEBUG para que siempre se muestre
+            secret_preview = ""
+            if len(dynamics_client_secret) >= 8:
+                secret_preview = f"{dynamics_client_secret[:4]}...{dynamics_client_secret[-4:]}"
+            else:
+                secret_preview = "[SECRET DEMASIADO CORTO]"
+            
+            logger.info(f"[CREDENTIALS] Configuración de Dynamics 365: tenant_id={dynamics_tenant_id[:8]}..., client_id={dynamics_client_id[:8]}..., secret_length={len(dynamics_client_secret)}, url={dynamics_url}")
+            logger.info(f"[SECRET_PREVIEW] Secret: {secret_preview} (longitud: {len(dynamics_client_secret)})")
+            
+            # Verificar si hay caracteres problemáticos
+            if '\n' in dynamics_client_secret or '\r' in dynamics_client_secret:
+                logger.warning("[SECRET_WARNING] El secret contiene caracteres de nueva línea!")
+            if dynamics_client_secret != dynamics_client_secret.strip():
+                logger.warning("[SECRET_WARNING] El secret contiene espacios al inicio o final!")
+            
+            # Mostrar representación para detectar caracteres invisibles (solo primeros 30 caracteres)
+            logger.info(f"[SECRET_REPR] repr(secret[:30]): {repr(dynamics_client_secret[:30])}")
+            
             # Obtener configuración de BD desde variables de Rocketbot
             db_config = _load_database_config_from_rocketbot()
             
@@ -357,6 +458,7 @@ try:
             from DynamicsCrmApi.services.pqrs_service import PqrsService
             
             # Crear autenticador y cliente
+            logger.info("[AUTH] Creando autenticador de Dynamics 365...")
             authenticator = Dynamics365Authenticator(
                 tenant_id=dynamics_tenant_id,
                 client_id=dynamics_client_id,

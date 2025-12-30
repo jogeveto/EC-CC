@@ -40,21 +40,12 @@ class Dynamics365Client:
         if self._token is None:
             # Scope para Dynamics 365 es la URL del recurso + /.default
             # Ejemplo: https://ccmadev.crm2.dynamics.com/.default
-            # Limpiar base_url de espacios y caracteres extra
-            base_url_clean = self.base_url.strip()
-            
-            # Extraer la URL base del recurso (antes de /api/)
-            if '/api/' in base_url_clean:
-                resource_url = base_url_clean.split('/api/')[0].strip()
-            else:
-                # Si no tiene /api/, usar la URL completa sin el path final
-                resource_url = base_url_clean.rsplit('/', 1)[0].strip() if '/' in base_url_clean else base_url_clean.strip()
-            
-            # Construir el scope
-            scope = f"{resource_url}/.default".strip()
+            # MANTENER SIMPLE como en pruebas-azure-connections
+            resource_url = self.base_url.split('/api/')[0]
+            scope = f"{resource_url}/.default"
             
             # Validar que el scope sea correcto
-            if not scope or not scope.startswith("https://"):
+            if not scope.startswith("https://"):
                 logger.error(f"Scope inválido generado. base_url: '{self.base_url}', resource_url: '{resource_url}', scope: '{scope}'")
                 raise ValueError(f"Scope inválido generado: '{scope}'. Verifica que dynamics_url sea correcto (ej: https://ccmadev.crm2.dynamics.com/api/data/v9.2)")
             
