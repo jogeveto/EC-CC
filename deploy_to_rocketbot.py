@@ -36,7 +36,8 @@ ROCKETBOT_EXECUTABLE_PATH = r"C:\Users\kevin\Downloads\rocketbot_win_20250715\Ro
 
 # Módulos a copiar
 MODULES_TO_DEPLOY = [
-    "ExpedicionCopias"
+    "ExpedicionCopias",
+    "DynamicsCrmApi"
 ]
 
 # Carpetas y archivos a excluir durante la copia

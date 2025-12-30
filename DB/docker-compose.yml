@@ -1,41 +1,82 @@
-version: '3.8'
-
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2019-latest
     container_name: sqlserver-expedicion-copias
+    hostname: sqlserver
     environment:
-      # Acepta el EULA de SQL Server
       ACCEPT_EULA: "Y"
-      # Contraseña del usuario SA (debe cumplir con las políticas de seguridad)
       SA_PASSWORD: "ExpedicionCopias2024!"
-      # Configuración adicional
       MSSQL_PID: "Developer"
-      MSSQL_LCID: 3082  # Español (España)
+      MSSQL_LCID: 3082
       MSSQL_COLLATION: "Modern_Spanish_CI_AS"
       MSSQL_TCP_PORT: 1433
+      MSSQL_MEMORY_LIMIT_MB: 2048
     ports:
       - "1433:1433"
     volumes:
-      # Persistencia de datos
       - sqlserver_data:/var/opt/mssql
-      # Scripts de inicialización (opcional)
-      - ./init:/docker-entrypoint-initdb.d
+      - ./init:/docker-entrypoint-initdb.d:ro
     networks:
       - expedicion-copias-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P 'ExpedicionCopias2024!' -C -Q 'SELECT 1' || exit 1"]
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P 'ExpedicionCopias2024!' -C -Q 'SELECT 1' -b || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  db-init:
+    image: mcr.microsoft.com/mssql-tools:latest
+    container_name: db-init-expedicion-copias
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    volumes:
+      - ./init:/scripts:ro
+    environment:
+      SA_PASSWORD: "ExpedicionCopias2024!"
+      SQLSERVER_HOST: sqlserver
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Esperando a que SQL Server esté completamente disponible..."
+        sleep 10
+        
+        echo "Ejecutando scripts de inicialización..."
+        
+        if [ -f /scripts/01-init-expedicion.sql ]; then
+          echo "Ejecutando 01-init-expedicion.sql..."
+          /opt/mssql-tools/bin/sqlcmd -S sqlserver -U SA -P "$$SA_PASSWORD" -C -i /scripts/01-init-expedicion.sql
+        fi
+        
+        if [ -f /scripts/02-create-dynamics-crm-pqrs-table.sql ]; then
+          echo "Ejecutando 02-create-dynamics-crm-pqrs-table.sql..."
+          /opt/mssql-tools/bin/sqlcmd -S sqlserver -U SA -P "$$SA_PASSWORD" -C -i /scripts/02-create-dynamics-crm-pqrs-table.sql
+        fi
+        
+        echo "Inicialización completada exitosamente."
+    networks:
+      - expedicion-copias-network
+    restart: "no"
 
 volumes:
   sqlserver_data:
     driver: local
+    name: expedicion-copias-sqlserver-data
 
 networks:
   expedicion-copias-network:
     driver: bridge
-
+    name: expedicion-copias-network

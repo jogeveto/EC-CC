@@ -18,9 +18,19 @@ Expedicion-copias/
 │   ├── services/              # Orquestación de negocio
 │   └── libs/                  # Dependencias locales
 │
+├── DynamicsCrmApi/            # Módulo para Dynamics CRM
+│   ├── __init__.py            # Punto de entrada Rocketbot
+│   ├── package.json           # Configuración Rocketbot
+│   ├── core/                  # Cliente Dynamics CRM
+│   ├── services/              # Servicios de negocio y BD
+│   ├── models/                # Modelos de datos
+│   └── README.md              # Documentación del módulo
+│
 ├── DB/                        # Configuración de base de datos
 │   ├── docker-compose.yml     # Contenedor SQL Server
 │   └── init/                  # Scripts SQL de inicialización
+│       ├── 01-init-expedicion.sql
+│       └── 02-create-dynamics-crm-pqrs-table.sql
 │
 ├── rocketbot_scripts/         # Scripts auxiliares para workflows
 ├── deploy_to_rocketbot.py     # Script de despliegue
@@ -65,13 +75,33 @@ Este proyecto está en estado inicial. El módulo `ExpedicionCopias` tiene la es
 - ✅ **shared/**: Framework completo
 - ✅ **DB/**: Configuración de base de datos
 - ✅ **ExpedicionCopias/**: Estructura base (lista para desarrollo)
+- ✅ **DynamicsCrmApi/**: Módulo para consultar y actualizar PQRS en Dynamics CRM
 
 ### Próximos Pasos
 
 1. Implementar lógica de negocio en `ExpedicionCopias/core/`
 2. Crear servicios de orquestación en `ExpedicionCopias/services/`
-3. Definir esquema de base de datos en `DB/init/`
-4. Configurar workflows en Rocketbot
+3. Configurar workflows en Rocketbot
+
+## 📊 Base de Datos
+
+### Tablas Existentes
+
+#### `ExpedicionCopiasDbo.expedicion_copias_pqrs`
+
+Tabla para almacenar datos de PQRS consultados desde Dynamics CRM.
+
+**Campos Principales:**
+- `sp_documentoid` (PK): ID único del documento
+- Todos los campos del JSON de respuesta de Dynamics CRM
+- Campos extra para proceso de expedición: `subcategoriaName`, `BusquedaDocumentos`, `CantDocumentos`, `UnionDocumentos`, `alamcenadoDocumentos`, `envioCorreo`, `cuerpoCorreo`, `actualizadoCRM`
+- Campos de auditoría: `fecha_creacion`, `fecha_edicion`
+
+**Script de Creación:**
+Ver `DB/init/02-create-dynamics-crm-pqrs-table.sql` para la definición completa con índices y triggers.
+
+**Nota para Infraestructura:**
+Ejecutar el script `02-create-dynamics-crm-pqrs-table.sql` en la base de datos `RPA_Automatizacion` para crear la tabla necesaria para el módulo `DynamicsCrmApi`.
 
 ## 🔧 Desarrollo
 
