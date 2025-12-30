@@ -24,6 +24,9 @@ except NameError:  # pragma: no cover
     def SetVar(_, __):  # noqa: D401, N802
         return None
     
+    def GetVar(_):  # noqa: D401, N802
+        return None
+    
     def PrintException():  # noqa: D401, N802
         return None
 
@@ -145,6 +148,59 @@ def _clean_rocketbot_config(config_param: Any) -> Any:
     return config_cleaned
 
 
+def _load_database_config_from_rocketbot() -> Dict[str, Any]:
+    """
+    Construye configuración de BD buscando variable por variable en Rocketbot.
+    Todas las variables deben estar configuradas en Rocketbot con los nombres exactos especificados.
+    No hay valores por defecto, todas son obligatorias.
+    
+    Returns:
+        Diccionario de configuración compatible con DatabaseServiceFactory.get_db_service_from_config()
+    
+    Raises:
+        ValueError: Si falta alguna variable requerida
+    """
+    # Obtener todas las variables de Rocketbot (todas son requeridas)
+    db_type = GetVar("db_type")  # type: ignore[name-defined]
+    db_server = GetVar("db_server")  # type: ignore[name-defined]
+    db_database = GetVar("db_database")  # type: ignore[name-defined]
+    db_user = GetVar("db_user")  # type: ignore[name-defined]
+    db_password = GetVar("db_password")  # type: ignore[name-defined]
+    db_driver = GetVar("db_driver")  # type: ignore[name-defined]
+    db_schema = GetVar("db_schema")  # type: ignore[name-defined]
+    
+    # Validar que todas las variables estén configuradas (no hay valores por defecto)
+    if not db_type or db_type == "":
+        raise ValueError("Variable 'db_type' no encontrada o vacía en Rocketbot. Debe configurarse obligatoriamente con el tipo de base de datos (ej: sqlserver)")
+    if not db_server or db_server == "":
+        raise ValueError("Variable 'db_server' no encontrada o vacía en Rocketbot. Debe configurarse obligatoriamente con el servidor (ej: localhost,1433)")
+    if not db_database or db_database == "":
+        raise ValueError("Variable 'db_database' no encontrada o vacía en Rocketbot. Debe configurarse obligatoriamente con el nombre de la base de datos")
+    if not db_user or db_user == "":
+        raise ValueError("Variable 'db_user' no encontrada o vacía en Rocketbot. Debe configurarse obligatoriamente con el usuario de la base de datos")
+    if not db_password or db_password == "":
+        raise ValueError("Variable 'db_password' no encontrada o vacía en Rocketbot. Debe configurarse obligatoriamente con la contraseña de la base de datos")
+    if not db_driver or db_driver == "":
+        raise ValueError("Variable 'db_driver' no encontrada o vacía en Rocketbot. Debe configurarse obligatoriamente con el driver ODBC (ej: ODBC Driver 17 for SQL Server)")
+    if not db_schema or db_schema == "":
+        raise ValueError("Variable 'db_schema' no encontrada o vacía en Rocketbot. Debe configurarse obligatoriamente con el esquema de la base de datos")
+    
+    # Construir diccionario de configuración (todas las variables son requeridas)
+    db_config: Dict[str, Any] = {
+        "db_type": db_type,
+        "server": db_server,
+        "database": db_database,
+        "user": db_user,
+        "password": db_password,
+        "driver": db_driver,
+        "schema": db_schema
+    }
+    
+    logger.info(f"[DB_CONFIG] Configuración de BD construida: tipo={db_type}, server={db_server}, database={db_database}, user={db_user}, driver={db_driver}, schema={db_schema}")
+    
+    return db_config
+
+
 # ============================================
 # PUNTO DE ENTRADA ROCKETBOT
 # ============================================
@@ -153,42 +209,57 @@ module = GetParams("module")
 try:
     if module == "consultar_por_filtros":
         logger.info("[INICIO] Consulta por filtros")
-        config_param = GetParams("config")
         result_var = GetParams("result")
         
-        # Variables de Rocketbot
-        subcategorias_ids = GetParams("subcategorias_ids")
-        invt_especificacion = GetParams("invt_especificacion")
-        subcategoria_name = GetParams("subcategoria_name")
-        dynamics_tenant_id = GetParams("dynamics_tenant_id")
-        dynamics_client_id = GetParams("dynamics_client_id")
-        dynamics_client_secret = GetParams("dynamics_client_secret")
-        dynamics_url = GetParams("dynamics_url")
+        # Obtener todas las variables desde Rocketbot (ya configuradas en el sistema)
+        subcategorias_ids = GetVar("subcategorias_ids")  # type: ignore[name-defined]
+        invt_especificacion = GetVar("invt_especificacion")  # type: ignore[name-defined]
+        subcategoria_name = GetVar("subcategoria_name")  # type: ignore[name-defined]
+        dynamics_tenant_id = GetVar("dynamics_tenant_id")  # type: ignore[name-defined]
+        dynamics_client_id = GetVar("dynamics_client_id")  # type: ignore[name-defined]
+        dynamics_client_secret = GetVar("dynamics_client_secret")  # type: ignore[name-defined]
+        dynamics_url = GetVar("dynamics_url")  # type: ignore[name-defined]
+        
+        # Limpiar valores de espacios en blanco y comillas
+        def _clean_value(value):
+            if value:
+                cleaned = str(value).strip()
+                # Eliminar comillas al inicio y final si existen
+                if cleaned.startswith('"') and cleaned.endswith('"'):
+                    cleaned = cleaned[1:-1].strip()
+                elif cleaned.startswith("'") and cleaned.endswith("'"):
+                    cleaned = cleaned[1:-1].strip()
+                return cleaned
+            return value
+        
+        subcategorias_ids = _clean_value(subcategorias_ids)
+        invt_especificacion = _clean_value(invt_especificacion)
+        subcategoria_name = _clean_value(subcategoria_name)
+        dynamics_tenant_id = _clean_value(dynamics_tenant_id)
+        dynamics_client_id = _clean_value(dynamics_client_id)
+        dynamics_client_secret = _clean_value(dynamics_client_secret)
+        dynamics_url = _clean_value(dynamics_url)
         
         try:
-            # Cargar configuración (limpiar llaves dobles de Rocketbot si existen)
-            config_param_cleaned = _clean_rocketbot_config(config_param) if config_param else None
-            config = load_config_from_param(config_param_cleaned) if config_param_cleaned else {}
-            _inicializar_logger_modulo(config)
+            # Inicializar logger sin configuración (usa valores por defecto)
+            _inicializar_logger_modulo({})
             
             # Validar variables requeridas
-            if not subcategorias_ids:
-                raise ValueError("Variable 'subcategorias_ids' es requerida")
-            if not subcategoria_name:
-                raise ValueError("Variable 'subcategoria_name' es requerida")
-            if not dynamics_tenant_id:
-                raise ValueError("Variable 'dynamics_tenant_id' es requerida")
-            if not dynamics_client_id:
-                raise ValueError("Variable 'dynamics_client_id' es requerida")
-            if not dynamics_client_secret:
-                raise ValueError("Variable 'dynamics_client_secret' es requerida")
-            if not dynamics_url:
-                raise ValueError("Variable 'dynamics_url' es requerida")
+            if not subcategorias_ids or subcategorias_ids == "":
+                raise ValueError("Variable 'subcategorias_ids' no encontrada o vacía en Rocketbot")
+            if not subcategoria_name or subcategoria_name == "":
+                raise ValueError("Variable 'subcategoria_name' no encontrada o vacía en Rocketbot")
+            if not dynamics_tenant_id or dynamics_tenant_id == "":
+                raise ValueError("Variable 'dynamics_tenant_id' no encontrada o vacía en Rocketbot")
+            if not dynamics_client_id or dynamics_client_id == "":
+                raise ValueError("Variable 'dynamics_client_id' no encontrada o vacía en Rocketbot")
+            if not dynamics_client_secret or dynamics_client_secret == "":
+                raise ValueError("Variable 'dynamics_client_secret' no encontrada o vacía en Rocketbot")
+            if not dynamics_url or dynamics_url == "":
+                raise ValueError("Variable 'dynamics_url' no encontrada o vacía en Rocketbot")
             
-            # Obtener configuración de BD
-            db_config = config.get("database", {})
-            if not db_config:
-                raise ValueError("Configuración de base de datos no encontrada en 'config'")
+            # Obtener configuración de BD desde variables de Rocketbot
+            db_config = _load_database_config_from_rocketbot()
             
             # Importar y configurar servicios
             from DynamicsCrmApi.core.dynamics_authenticator import Dynamics365Authenticator
@@ -233,38 +304,51 @@ try:
     
     elif module == "actualizar_pqrs":
         logger.info("[INICIO] Actualización de PQRS")
-        config_param = GetParams("config")
         result_var = GetParams("result")
         
-        # Variables de Rocketbot
-        subcategoria_name = GetParams("subcategoria_name")
-        dynamics_tenant_id = GetParams("dynamics_tenant_id")
-        dynamics_client_id = GetParams("dynamics_client_id")
-        dynamics_client_secret = GetParams("dynamics_client_secret")
-        dynamics_url = GetParams("dynamics_url")
+        # Obtener todas las variables desde Rocketbot (ya configuradas en el sistema)
+        subcategoria_name = GetVar("subcategoria_name")  # type: ignore[name-defined]
+        dynamics_tenant_id = GetVar("dynamics_tenant_id")  # type: ignore[name-defined]
+        dynamics_client_id = GetVar("dynamics_client_id")  # type: ignore[name-defined]
+        dynamics_client_secret = GetVar("dynamics_client_secret")  # type: ignore[name-defined]
+        dynamics_url = GetVar("dynamics_url")  # type: ignore[name-defined]
+        
+        # Limpiar valores de espacios en blanco y comillas
+        def _clean_value(value):
+            if value:
+                cleaned = str(value).strip()
+                # Eliminar comillas al inicio y final si existen
+                if cleaned.startswith('"') and cleaned.endswith('"'):
+                    cleaned = cleaned[1:-1].strip()
+                elif cleaned.startswith("'") and cleaned.endswith("'"):
+                    cleaned = cleaned[1:-1].strip()
+                return cleaned
+            return value
+        
+        subcategoria_name = _clean_value(subcategoria_name)
+        dynamics_tenant_id = _clean_value(dynamics_tenant_id)
+        dynamics_client_id = _clean_value(dynamics_client_id)
+        dynamics_client_secret = _clean_value(dynamics_client_secret)
+        dynamics_url = _clean_value(dynamics_url)
         
         try:
-            # Cargar configuración (limpiar llaves dobles de Rocketbot si existen)
-            config_param_cleaned = _clean_rocketbot_config(config_param) if config_param else None
-            config = load_config_from_param(config_param_cleaned) if config_param_cleaned else {}
-            _inicializar_logger_modulo(config)
+            # Inicializar logger sin configuración (usa valores por defecto)
+            _inicializar_logger_modulo({})
             
             # Validar variables requeridas
-            if not subcategoria_name:
-                raise ValueError("Variable 'subcategoria_name' es requerida")
-            if not dynamics_tenant_id:
-                raise ValueError("Variable 'dynamics_tenant_id' es requerida")
-            if not dynamics_client_id:
-                raise ValueError("Variable 'dynamics_client_id' es requerida")
-            if not dynamics_client_secret:
-                raise ValueError("Variable 'dynamics_client_secret' es requerida")
-            if not dynamics_url:
-                raise ValueError("Variable 'dynamics_url' es requerida")
+            if not subcategoria_name or subcategoria_name == "":
+                raise ValueError("Variable 'subcategoria_name' no encontrada o vacía en Rocketbot")
+            if not dynamics_tenant_id or dynamics_tenant_id == "":
+                raise ValueError("Variable 'dynamics_tenant_id' no encontrada o vacía en Rocketbot")
+            if not dynamics_client_id or dynamics_client_id == "":
+                raise ValueError("Variable 'dynamics_client_id' no encontrada o vacía en Rocketbot")
+            if not dynamics_client_secret or dynamics_client_secret == "":
+                raise ValueError("Variable 'dynamics_client_secret' no encontrada o vacía en Rocketbot")
+            if not dynamics_url or dynamics_url == "":
+                raise ValueError("Variable 'dynamics_url' no encontrada o vacía en Rocketbot")
             
-            # Obtener configuración de BD
-            db_config = config.get("database", {})
-            if not db_config:
-                raise ValueError("Configuración de base de datos no encontrada en 'config'")
+            # Obtener configuración de BD desde variables de Rocketbot
+            db_config = _load_database_config_from_rocketbot()
             
             # Importar y configurar servicios
             from DynamicsCrmApi.core.dynamics_authenticator import Dynamics365Authenticator
@@ -305,22 +389,15 @@ try:
     
     elif module == "health_check":
         logger.info("[INICIO] Health check")
-        config_param = GetParams("config")
         result_var = GetParams("result")
         
         try:
-            # Cargar configuración (limpiar llaves dobles de Rocketbot si existen)
-            config_param_cleaned = _clean_rocketbot_config(config_param) if config_param else None
-            config = load_config_from_param(config_param_cleaned) if config_param_cleaned else {}
-            _inicializar_logger_modulo(config)
+            # Inicializar logger sin configuración (usa valores por defecto)
+            _inicializar_logger_modulo({})
             
-            db_config = config.get("database", {})
-            if not db_config:
-                result = {
-                    "status": "error",
-                    "message": "No se encontró configuración de base de datos",
-                }
-            else:
+            # Obtener configuración de BD desde variables de Rocketbot
+            try:
+                db_config = _load_database_config_from_rocketbot()
                 try:
                     crud = DatabaseServiceFactory.get_db_service_from_config(db_config.copy())
                     result = {
@@ -333,6 +410,11 @@ try:
                         "status": "error",
                         "message": f"Error de conexión: {str(db_error)}",
                     }
+            except ValueError as config_error:
+                result = {
+                    "status": "error",
+                    "message": f"No se encontró configuración de base de datos: {str(config_error)}",
+                }
             
             if result_var:
                 SetVar(result_var, result)
