@@ -333,12 +333,13 @@ class SQLServerConnection(DatabaseConnection):
         return f"[{table}]"
 
     def connect(self):
-        """Establece la conexión a SQL Server."""
+        """
+        Establece la conexión a SQL Server.
+        """
         try:
             import pyodbc
             
-            # Construir connection string con timeout corto
-            # El formato de SERVER puede ser: 'hostname,puerto' o 'hostname\instancia,puerto'
+            # Construir connection string
             connection_string = (
                 f"DRIVER={{{self.driver}}};"
                 f"SERVER={self.server};"
@@ -349,30 +350,18 @@ class SQLServerConnection(DatabaseConnection):
                 f"Connection Timeout=15;"
                 f"Command Timeout=30;"
             )
-            self.connection = pyodbc.connect(connection_string)
-            logger.info(
-                f"Conexión a SQL Server establecida: {self.server}/{self.database}"
-            )
-            logger.info(f"Intentando conectar a SQL Server: SERVER={self.server}, DATABASE={self.database}")
-            logger.info("Timeout configurado: 15 segundos")
             
-            # Intentar conexión con timeout explícito
-            # IMPORTANTE: autocommit=False permite control manual de transacciones
-            # pero también puede causar bloqueos si no se hacen commits
+            logger.info(f"Conectando a SQL Server: {self.server}/{self.database} con driver: {self.driver}")
             self.connection = pyodbc.connect(connection_string, timeout=15, autocommit=False)
-            logger.info(f"Conectado exitosamente a SQL Server: {self.database}")
             
-            # Asegurar que autocommit esté deshabilitado para control manual de transacciones
-            # Esto permite hacer commit explícito de los cambios
             if hasattr(self.connection, 'autocommit'):
                 self.connection.autocommit = False
                 logger.debug("Autocommit deshabilitado - usando commits manuales")
-            
-            # Configurar timeout para comandos (evita bloqueos prolongados)
             if hasattr(self.connection, 'timeout'):
                 self.connection.timeout = 30
                 logger.debug("Timeout de comandos configurado: 30 segundos")
             
+            logger.info(f"Conectado exitosamente a SQL Server: {self.database}")
             return self.connection
             
         except ImportError:
@@ -380,23 +369,21 @@ class SQLServerConnection(DatabaseConnection):
             raise
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Error al conectar a SQL Server después de 5 segundos")
-            logger.error(f"SERVER={self.server}, DATABASE={self.database}")
+            logger.error(f"Error al conectar a SQL Server: {error_msg}")
+            logger.error(f"SERVER={self.server}, DATABASE={self.database}, DRIVER={self.driver}")
             logger.error(f"Tipo de error: {type(e).__name__}")
-            logger.error(f"Detalles: {error_msg}")
             
             # Mensajes de ayuda según el tipo de error
             if "11001" in error_msg or "Host desconocido" in error_msg or "08001" in error_msg:
                 logger.error("SOLUCIÓN: El hostname no se puede resolver. Verifica:")
-                if self.server and self.server is not None:
+                if self.server:
                     try:
                         server_host = self.server.split(',')[0] if ',' in str(self.server) else str(self.server)
                         logger.error(f"  1. Que el hostname sea correcto: {server_host}")
                     except (AttributeError, TypeError) as split_error:
                         logger.error(f"  1. Error al procesar server: {self.server} (tipo: {type(self.server)}). Error: {split_error}")
                 else:
-                    logger.error("  1. Que la configuración de 'server' o 'Server' esté presente en la configuración de BD")
-                    logger.error(f"  1. self.server es None o vacío. Valor actual: {self.server}")
+                    logger.error("  1. Que la configuración de 'server' esté presente en la configuración de BD")
                 logger.error(f"  2. Que SQL Server esté corriendo en ese servidor")
             elif "IM002" in error_msg:
                 logger.error("SOLUCIÓN: El driver ODBC no se encuentra. Verifica:")
@@ -405,13 +392,8 @@ class SQLServerConnection(DatabaseConnection):
                     import pyodbc
                     available_drivers = pyodbc.drivers()
                     logger.error(f"  2. Drivers ODBC disponibles en el sistema: {available_drivers}")
-                    if "ODBC Driver 17 for SQL Server" in available_drivers:
-                        logger.error("  3. Se detectó 'ODBC Driver 17 for SQL Server'. El sistema intentará usar este driver automáticamente.")
-                    elif "ODBC Driver 18 for SQL Server" in available_drivers:
-                        logger.error("  3. Se detectó 'ODBC Driver 18 for SQL Server'. El sistema intentará usar este driver automáticamente.")
-                    else:
-                        logger.error("  3. No se encontraron drivers ODBC para SQL Server. Instala uno desde:")
-                        logger.error("     https://docs.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server")
+                    logger.error("  3. Instala un driver ODBC para SQL Server desde:")
+                    logger.error("     https://docs.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server")
                 except ImportError:
                     logger.error("  2. pyodbc no está disponible. Instala con: pip install pyodbc")
             elif "timeout" in error_msg.lower():

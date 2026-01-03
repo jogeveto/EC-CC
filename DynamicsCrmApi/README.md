@@ -125,9 +125,34 @@ El parámetro `config` debe incluir la configuración de SQL Server:
 
 ## Dependencias
 
+### Librerías Requeridas
+
 - `azure-identity`: Para autenticación con Azure AD
+- `azure-core`: Dependencia de `azure-identity`
 - `requests`: Para peticiones HTTP a Dynamics CRM
 - `shared`: Utilidades compartidas del proyecto (logger, database factory, etc.)
+
+### Instalación de Dependencias
+
+Las librerías de Azure (`azure-identity` y `azure-core`) deben estar disponibles en el entorno de Python de Rocketbot. Tienes dos opciones:
+
+#### Opción 1: Instalación Global (Recomendado)
+
+Instala las dependencias globalmente en el entorno de Python de Rocketbot:
+
+```bash
+pip install azure-identity azure-core requests
+```
+
+#### Opción 2: Librerías Vendored (Carpeta `libs/`)
+
+Si prefieres incluir las librerías con el módulo, puedes crear la carpeta `libs/` dentro de `DynamicsCrmApi/` y copiar allí las librerías de Azure. El módulo detectará automáticamente esta carpeta si existe.
+
+**Nota importante**: Si copias manualmente la carpeta `DynamicsCrmApi` a Rocketbot, asegúrate de:
+- Copiar también la carpeta `libs/` si existe, O
+- Instalar las dependencias globalmente en Python de Rocketbot
+
+El módulo verificará automáticamente si existe la carpeta `libs/` y la usará si está disponible. Si no existe, intentará usar las librerías instaladas globalmente.
 
 ## Arquitectura
 

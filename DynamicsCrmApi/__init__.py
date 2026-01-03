@@ -43,7 +43,8 @@ if shared_path not in sys.path:
     sys.path.append(shared_path)
 if dynamics_module_path not in sys.path:
     sys.path.insert(0, dynamics_module_path)
-if libs_path not in sys.path:
+# Solo agregar libs_path si existe (opcional - para librerías vendored)
+if os.path.exists(libs_path) and libs_path not in sys.path:
     sys.path.insert(0, libs_path)
 
 # ============================================
