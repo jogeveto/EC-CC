@@ -17,11 +17,12 @@ from __future__ import annotations  # Makes all annotations strings - no runtime
 
 import os
 import sys
-from typing import TYPE_CHECKING, cast, Dict, Any
+from typing import TYPE_CHECKING, cast
 
 # Type imports for IDE support (only evaluated by type checkers, not at runtime)
+# This provides type information to the IDE and type checkers
 if TYPE_CHECKING:
-    from ExpedicionCopias.services.expedicion_service import ExpedicionService
+    from services.expedicion_service import ExpedicionService
 
 # Agregar shared, libs y directorio actual del módulo al path
 try:  # Permite importación fuera de Rocketbot (tests unitarios)
@@ -56,125 +57,11 @@ if libs_path not in sys.path:
     sys.path.insert(0, libs_path)  # Prioridad alta para las dependencias
 
 # Importar utilidades compartidas
-import logging
 from shared.utils.logger import get_logger
 from shared.utils.config_helper import load_config_from_param
 
-# Definir función dummy primero (fallback)
-def establecer_configuracion_global(logs_config=None, ruta_base=None):
-    """Función dummy cuando establecer_configuracion_global no está disponible."""
-    pass
-
-# Intentar importar establecer_configuracion_global y reemplazar la dummy si está disponible
-try:
-    from shared.utils.logger import establecer_configuracion_global as _establecer_config_global
-    establecer_configuracion_global = _establecer_config_global
-except (ImportError, AttributeError):
-    # Mantener la función dummy si no está disponible
-    pass
-
 # Logger del módulo
 logger = get_logger("ExpedicionCopiasModule")
-
-# Variable para rastrear si el logger ya fue configurado
-_logger_configurado = False
-
-
-def _inicializar_logger_modulo(config: Dict[str, Any]) -> None:
-    """
-    Configura el logger del módulo una sola vez usando la configuración proporcionada.
-    
-    Args:
-        config: Diccionario de configuración que puede contener:
-            - Logs: Configuración de logs (RutaLogAuditoria, NombreLogAuditoria, etc.)
-            - Globales: Configuración global (RutaBaseProyecto, etc.)
-    """
-    global _logger_configurado, logger
-    
-    if _logger_configurado:
-        return  # Ya configurado, no hacer nada
-    
-    # Extraer configuración de logs y ruta base
-    logs_config = None
-    ruta_base = None
-    
-    # Intentar obtener Logs directamente
-    if "Logs" in config:
-        logs_config = config.get("Logs")
-    
-    # Intentar obtener Globales directamente
-    if "Globales" in config:
-        globales = config.get("Globales", {})
-        if isinstance(globales, dict):
-            ruta_base = globales.get("RutaBaseProyecto")
-    
-    # Si no se encontró, intentar buscar en otras estructuras posibles
-    if not logs_config:
-        for key in ["Logs", "logs", "LOG"]:
-            if key in config:
-                logs_config = config.get(key)
-                break
-    
-    if not ruta_base:
-        for key in ["Globales", "globales", "GLOBAL"]:
-            if key in config:
-                globales = config.get(key, {})
-                if isinstance(globales, dict):
-                    ruta_base = globales.get("RutaBaseProyecto") or globales.get("ruta_base") or globales.get("RutaBase")
-                    if ruta_base:
-                        break
-    
-    # Preparar configuración para setup_logger
-    config_para_logger = None
-    
-    if logs_config and isinstance(logs_config, dict) and logs_config:
-        ya_normalizado = "auditoria" in logs_config or "sistema" in logs_config
-        
-        if ya_normalizado:
-            config_para_logger = logs_config
-        else:
-            config_para_logger = {
-                "Logs": logs_config,
-                "Globales": {"RutaBaseProyecto": ruta_base} if ruta_base else {}
-            }
-    elif ruta_base:
-        config_para_logger = {
-            "Logs": {},
-            "Globales": {"RutaBaseProyecto": ruta_base}
-        }
-    
-    # Establecer configuración global para que todos los loggers la usen
-    try:
-        establecer_configuracion_global(config_para_logger, ruta_base)
-    except NameError:
-        pass
-    
-    # Reconfigurar el logger con la configuración proporcionada
-    try:
-        from shared.utils.logger import setup_logger
-        logger_obj = setup_logger("ExpedicionCopiasModule", logs_config=config_para_logger, ruta_base=ruta_base)
-    except NameError:
-        from shared.utils.logger import setup_logger
-        logger_obj = setup_logger("ExpedicionCopiasModule", logs_config=config_para_logger, ruta_base=ruta_base)
-    
-    # Actualizar el logger global del módulo
-    global logger
-    logger = logger_obj
-    
-    # Verificar que los handlers se agregaron correctamente
-    try:
-        if logger and logger.handlers:
-            tiene_file_handler = any(isinstance(h, logging.FileHandler) for h in logger.handlers)
-            if not tiene_file_handler:
-                try:
-                    from shared.utils.logger import _configurar_handlers_automaticos
-                    _configurar_handlers_automaticos(logger, logs_config=config_para_logger, ruta_base=ruta_base)
-                except (ImportError, AttributeError):
-                    pass
-    except Exception:
-        pass
-    
-    _logger_configurado = True
 
 
 def _import_expedicion_service(module_path: str) -> type[ExpedicionService]:
@@ -184,27 +71,31 @@ def _import_expedicion_service(module_path: str) -> type[ExpedicionService]:
     Intenta importación normal primero (funciona en IDE/desarrollo y preserva typing),
     luego fallback a importlib (funciona en Rocketbot).
     
+    El tipo de retorno referencia ExpedicionService (definido arriba con TYPE_CHECKING).
+    Con `from __future__ import annotations`, esto es una string literal automáticamente.
+    
     Args:
         module_path: Ruta base del módulo ExpedicionCopias
         
     Returns:
-        Clase ExpedicionService
+        Clase ExpedicionService - IDE reconocerá el tipo gracias a TYPE_CHECKING arriba
     """
     # Try 1: Normal import (works in IDE/development) - preserves full typing
-    try:
-        from ExpedicionCopias.services.expedicion_service import ExpedicionService
-        return ExpedicionService  # type: ignore[return-value]
-    except (ImportError, ModuleNotFoundError):
-        pass
-    
-    # Try 2: Full module path import - also preserves typing
     try:
         from services.expedicion_service import ExpedicionService
         return ExpedicionService  # type: ignore[return-value]
     except (ImportError, ModuleNotFoundError):
         pass
     
+    # Try 2: Full module path import - also preserves typing
+    try:
+        from ExpedicionCopias.services.expedicion_service import ExpedicionService
+        return ExpedicionService  # type: ignore[return-value]
+    except (ImportError, ModuleNotFoundError):
+        pass
+    
     # Try 3: importlib fallback (works in Rocketbot)
+    # Cast to preserve typing - TYPE_CHECKING import above provides type info for IDE
     import importlib.util
     expedicion_service_path = module_path + "services" + os.sep + "expedicion_service.py"
     spec = importlib.util.spec_from_file_location("expedicion_service", expedicion_service_path)
@@ -217,6 +108,7 @@ def _import_expedicion_service(module_path: str) -> type[ExpedicionService]:
     if not hasattr(expedicion_module, "ExpedicionService"):
         raise ImportError("ExpedicionService no encontrado en expedicion_service.py")
     
+    # Cast preserves typing info - TYPE_CHECKING import provides the type definition
     return cast(type[ExpedicionService], expedicion_module.ExpedicionService)  # type: ignore[return-value, type-arg]
 
 
@@ -245,9 +137,6 @@ try:
             # Cargar configuración
             config = load_config_from_param(config_param) if config_param else {}
 
-            # Inicializar logger del módulo
-            _inicializar_logger_modulo(config)
-
             # Obtener variables de Rocketbot
             graph_client_secret = GetParams("graph_client_secret")
             dynamics_client_secret = GetParams("dynamics_client_secret")
@@ -269,8 +158,11 @@ try:
                 config.setdefault("Database", {})["password"] = database_password
 
             # Import ExpedicionService with full typing support
+            # The helper function tries multiple import methods and preserves typing for IDE
             ExpedicionServiceClass = _import_expedicion_service(expedicion_module_path)
-            service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
+            # With 'from __future__ import annotations', this annotation becomes a string
+            # The IDE will resolve ExpedicionService from the TYPE_CHECKING block above
+            service: ExpedicionService = ExpedicionServiceClass(config, logger)  # type: ignore[assignment]
             resultado = service.procesar_particulares()
 
             logger.info(f"Procesamiento de copias completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
@@ -280,7 +172,7 @@ try:
 
         except Exception as e:
             error_msg = f"Error al procesar copias: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(error_msg)
             resultado = {"status": "error", "message": error_msg, "casos_procesados": 0, "casos_error": 0}
             if result_var:
                 SetVar(result_var, resultado)
@@ -308,9 +200,6 @@ try:
             # Cargar configuración
             config = load_config_from_param(config_param) if config_param else {}
 
-            # Inicializar logger del módulo
-            _inicializar_logger_modulo(config)
-
             # Obtener variables de Rocketbot
             graph_client_secret = GetParams("graph_client_secret")
             dynamics_client_secret = GetParams("dynamics_client_secret")
@@ -332,8 +221,11 @@ try:
                 config.setdefault("Database", {})["password"] = database_password
 
             # Import ExpedicionService with full typing support
+            # The helper function tries multiple import methods and preserves typing for IDE
             ExpedicionServiceClass = _import_expedicion_service(expedicion_module_path)
-            service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
+            # With 'from __future__ import annotations', this annotation becomes a string
+            # The IDE will resolve ExpedicionService from the TYPE_CHECKING block above
+            service: ExpedicionService = ExpedicionServiceClass(config, logger)  # type: ignore[assignment]
             resultado = service.procesar_oficiales()
 
             logger.info(f"Procesamiento de copias oficiales completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
@@ -343,7 +235,7 @@ try:
 
         except Exception as e:
             error_msg = f"Error al procesar copias oficiales: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(error_msg)
             resultado = {"status": "error", "message": error_msg, "casos_procesados": 0, "casos_error": 0}
             if result_var:
                 SetVar(result_var, resultado)
@@ -364,9 +256,6 @@ try:
         try:
             # Cargar configuración
             config = load_config_from_param(config_param) if config_param else {}
-
-            # Inicializar logger del módulo
-            _inicializar_logger_modulo(config)
 
             # Obtener variables de Rocketbot
             graph_client_secret = GetParams("graph_client_secret")
@@ -397,8 +286,8 @@ try:
             
             # Verificar conexión con Dynamics 365 CRM
             try:
-                from ExpedicionCopias.core.auth import Dynamics365Authenticator
-                from ExpedicionCopias.core.crm_client import CRMClient
+                from core.auth import Dynamics365Authenticator
+                from core.crm_client import CRMClient
                 
                 dynamics_config = config.get("Dynamics365", {})
                 dynamics_client_secret = config.get("dynamics_client_secret", "")
@@ -417,8 +306,8 @@ try:
             
             # Verificar conexión con DocuWare
             try:
-                from ExpedicionCopias.core.docuware_client import DocuWareClient
-                from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
+                from core.docuware_client import DocuWareClient
+                from core.rules_engine import ExcepcionesValidator
                 
                 rules_validator = ExcepcionesValidator([])
                 docuware = DocuWareClient(config, rules_validator)
@@ -429,8 +318,8 @@ try:
             
             # Verificar conexión con Microsoft Graph API
             try:
-                from ExpedicionCopias.core.auth import AzureAuthenticator
-                from ExpedicionCopias.core.graph_client import GraphClient
+                from core.auth import AzureAuthenticator
+                from core.graph_client import GraphClient
                 
                 graph_config = config.get("GraphAPI", {})
                 graph_client_secret = config.get("graph_client_secret", "")
@@ -452,7 +341,42 @@ try:
 
         except Exception as e:
             error_msg = f"Error en health check: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(error_msg)
+            resultado = {"status": "error", "message": error_msg}
+            if result_var:
+                SetVar(result_var, resultado)
+            PrintException()
+            raise e
+
+    elif module == "test_action":
+        """
+        Acción dummy para verificar que el módulo se carga correctamente en RocketBot.
+        Esta acción puede ser eliminada después de verificar que el módulo funciona.
+        
+        Parámetros:
+            - result (opcional): Variable donde guardar el resultado
+        
+        Retorna:
+            Diccionario con mensaje de éxito
+        """
+        result_var = GetParams("result")
+        
+        try:
+            resultado = {
+                "status": "ok",
+                "message": "Módulo ExpedicionCopias cargado correctamente",
+                "module_name": "ExpedicionCopias",
+                "actions_available": ["procesar_copias", "procesar_copias_oficiales", "health", "test_action"]
+            }
+            
+            if result_var:
+                SetVar(result_var, resultado)
+            
+            logger.info("Test Action: Módulo ExpedicionCopias cargado correctamente")
+            
+        except Exception as e:
+            error_msg = f"Error en test_action: {str(e)}"
+            logger.error(error_msg)
             resultado = {"status": "error", "message": error_msg}
             if result_var:
                 SetVar(result_var, resultado)
@@ -463,4 +387,3 @@ except Exception as e:
     logger.error(f"Error en módulo ExpedicionCopias: {e}")
     PrintException()
     raise e
-

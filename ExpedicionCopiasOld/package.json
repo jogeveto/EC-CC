@@ -1,0 +1,273 @@
+{
+  "author": "Trycore Team",
+  "description": "Módulo para expedición de copias",
+  "description_lang": {
+    "es": "Módulo para expedición de copias",
+    "en": "Module for expedition of copies",
+    "pr": "Módulo para expedição de cópias"
+  },
+  "version": "1.0.0",
+  "license": "MIT",
+  "name": "ExpedicionCopias",
+  "dependencies": {},
+  "title": {
+    "en": "Expedition of Copies",
+    "es": "Expedición de Copias",
+    "pr": "Expedição de Cópias"
+  },
+  "linux": true,
+  "windows": true,
+  "mac": true,
+  "docker": true,
+  "children": [
+    {
+      "en": {
+        "title": "Process Copies",
+        "description": "Processes cases for individuals (COPIAS)",
+        "title_options": "Select Option",
+        "options": null
+      },
+      "es": {
+        "title": "Procesar Copias",
+        "description": "Procesa casos de particulares (COPIAS)",
+        "title_options": "Seleccione una opción",
+        "options": null
+      },
+      "pr": {
+        "title": "Processar Cópias",
+        "description": "Processa casos de particulares (COPIAS)",
+        "title_options": "Selecione uma opção",
+        "options": null
+      },
+      "form": {
+        "css": "modal-lg",
+        "inputs": [
+          {
+            "type": "textarea",
+            "placeholder": {
+              "es": "Ruta a archivo JSON o diccionario con configuración",
+              "en": "Path to JSON file or dictionary with configuration",
+              "pr": "Caminho para arquivo JSON ou dicionário com configuração"
+            },
+            "title": {
+              "es": "Configuración",
+              "en": "Configuration",
+              "pr": "Configuração"
+            },
+            "id": "config",
+            "css": "col-md-12"
+          },
+          {
+            "type": "input",
+            "placeholder": {
+              "es": "Variable",
+              "en": "Variable",
+              "pr": "Variável"
+            },
+            "title": {
+              "es": "Variable donde guardar resultado",
+              "en": "Variable to store result",
+              "pr": "Variável para armazenar resultado"
+            },
+            "remove_vars": true,
+            "id": "result",
+            "css": "col-md-12"
+          }
+        ]
+      },
+      "module": "procesar_copias",
+      "module_name": "ExpedicionCopias",
+      "visible": true,
+      "options": false,
+      "linux": true,
+      "windows": true,
+      "mac": true,
+      "docker": true,
+      "father": "module",
+      "group": "scripts"
+    },
+    {
+      "en": {
+        "title": "Process Official Copies",
+        "description": "Processes cases for official entities (COPIAS ENTIDADES OFICIALES)",
+        "title_options": "Select Option",
+        "options": null
+      },
+      "es": {
+        "title": "Procesar Copias Oficiales",
+        "description": "Procesa casos de entidades oficiales (COPIAS ENTIDADES OFICIALES)",
+        "title_options": "Seleccione una opción",
+        "options": null
+      },
+      "pr": {
+        "title": "Processar Cópias Oficiais",
+        "description": "Processa casos de entidades oficiais (COPIAS ENTIDADES OFICIALES)",
+        "title_options": "Selecione uma opção",
+        "options": null
+      },
+      "form": {
+        "css": "modal-lg",
+        "inputs": [
+          {
+            "type": "textarea",
+            "placeholder": {
+              "es": "Ruta a archivo JSON o diccionario con configuración",
+              "en": "Path to JSON file or dictionary with configuration",
+              "pr": "Caminho para arquivo JSON ou dicionário com configuração"
+            },
+            "title": {
+              "es": "Configuración",
+              "en": "Configuration",
+              "pr": "Configuração"
+            },
+            "id": "config",
+            "css": "col-md-12"
+          },
+          {
+            "type": "input",
+            "placeholder": {
+              "es": "Variable",
+              "en": "Variable",
+              "pr": "Variável"
+            },
+            "title": {
+              "es": "Variable donde guardar resultado",
+              "en": "Variable to store result",
+              "pr": "Variável para armazenar resultado"
+            },
+            "remove_vars": true,
+            "id": "result",
+            "css": "col-md-12"
+          }
+        ]
+      },
+      "module": "procesar_copias_oficiales",
+      "module_name": "ExpedicionCopias",
+      "visible": true,
+      "options": false,
+      "linux": true,
+      "windows": true,
+      "mac": true,
+      "docker": true,
+      "father": "module",
+      "group": "scripts"
+    },
+    {
+      "en": {
+        "title": "Health Check",
+        "description": "Verifies connection status with CRM, DocuWare, Graph API and Database",
+        "title_options": "Select Option",
+        "options": null
+      },
+      "es": {
+        "title": "Verificar Conexión",
+        "description": "Verifica el estado de conexión con CRM, DocuWare, Graph API y Base de Datos",
+        "title_options": "Seleccione una opción",
+        "options": null
+      },
+      "pr": {
+        "title": "Verificar Conexão",
+        "description": "Verifica o status da conexão com CRM, DocuWare, Graph API e Banco de Dados",
+        "title_options": "Selecione uma opção",
+        "options": null
+      },
+      "form": {
+        "css": "modal-lg",
+        "inputs": [
+          {
+            "type": "textarea",
+            "placeholder": {
+              "es": "Ruta a archivo JSON o diccionario con configuración",
+              "en": "Path to JSON file or dictionary with configuration",
+              "pr": "Caminho para arquivo JSON ou dicionário com configuração"
+            },
+            "title": {
+              "es": "Configuración",
+              "en": "Configuration",
+              "pr": "Configuração"
+            },
+            "id": "config",
+            "css": "col-md-12"
+          },
+          {
+            "type": "input",
+            "placeholder": {
+              "es": "Variable",
+              "en": "Variable",
+              "pr": "Variável"
+            },
+            "title": {
+              "es": "Variable donde guardar resultado",
+              "en": "Variable to store result",
+              "pr": "Variável para armazenar resultado"
+            },
+            "remove_vars": true,
+            "id": "result",
+            "css": "col-md-12"
+          }
+        ]
+      },
+      "module": "health",
+      "module_name": "ExpedicionCopias",
+      "visible": true,
+      "options": false,
+      "linux": true,
+      "windows": true,
+      "mac": true,
+      "docker": true,
+      "father": "module",
+      "group": "scripts"
+    },
+    {
+      "en": {
+        "title": "Test Action",
+        "description": "Dummy action to verify module loads correctly (can be deleted after verification)",
+        "title_options": "Select Option",
+        "options": null
+      },
+      "es": {
+        "title": "Acción de Prueba",
+        "description": "Acción dummy para verificar que el módulo se carga correctamente (puede eliminarse después de verificar)",
+        "title_options": "Seleccione una opción",
+        "options": null
+      },
+      "pr": {
+        "title": "Ação de Teste",
+        "description": "Ação dummy para verificar que o módulo carrega corretamente (pode ser eliminada após verificação)",
+        "title_options": "Selecione uma opção",
+        "options": null
+      },
+      "form": {
+        "css": "modal-lg",
+        "inputs": [
+          {
+            "type": "input",
+            "placeholder": {
+              "es": "Variable",
+              "en": "Variable",
+              "pr": "Variável"
+            },
+            "title": {
+              "es": "Variable donde guardar resultado",
+              "en": "Variable to store result",
+              "pr": "Variável para armazenar resultado"
+            },
+            "remove_vars": true,
+            "id": "result",
+            "css": "col-md-12"
+          }
+        ]
+      },
+      "module": "test_action",
+      "module_name": "ExpedicionCopias",
+      "visible": true,
+      "options": false,
+      "linux": true,
+      "windows": true,
+      "mac": true,
+      "docker": true,
+      "father": "module",
+      "group": "scripts"
+    }
+  ]
+}
