@@ -509,48 +509,48 @@ class GraphClient:
             ],
             "roles": roles,
             "requireSignIn": True,
-            "sendInvitation": True,
+            "sendInvitation": False,  # No enviar email automático de SharePoint, usamos nuestro propio email
             "message": "Se ha compartido un archivo con usted. Puede acceder a través del enlace en este correo."
         }
         
         try:
             response = self.post(endpoint, data=invite_data)
             
+            # Siempre obtener el webUrl del item directamente para asegurar que tenemos el enlace
+            # La respuesta de /invite puede no incluir el webUrl en algunos casos
+            info_item = self._obtener_info_carpeta_by_id(item_id, usuario_id)
+            web_url = info_item.get("webUrl", "")
+            
+            if not web_url:
+                # Si aún no tenemos webUrl, intentar obtenerlo de la respuesta de invite
+                value = response.get("value", [])
+                if value:
+                    permiso = value[0]
+                    link_info = permiso.get("link", {})
+                    web_url = link_info.get("webUrl", "")
+            
+            if not web_url:
+                raise ValueError(f"No se pudo obtener webUrl del item {item_id} después de compartir")
+            
             # La respuesta contiene información sobre los permisos creados
             value = response.get("value", [])
+            permission_id = ""
             if value:
                 permiso = value[0]
-                link_info = permiso.get("link", {})
-                web_url = link_info.get("webUrl", "")
-                
-                self.logger.info(
-                    f"[ONEDRIVE] Archivo/carpeta compartido con {email_destinatario} "
-                    f"(rol: {rol}). Invitación enviada por correo."
-                )
-                
-                return {
-                    "link": web_url,
-                    "type": "user_invitation",
-                    "email": email_destinatario,
-                    "rol": rol,
-                    "permission_id": permiso.get("id", "")
-                }
-            else:
-                # Si no hay value, intentar obtener webUrl del item directamente
-                info_item = self._obtener_info_carpeta_by_id(item_id, usuario_id)
-                web_url = info_item.get("webUrl", "")
-                
-                self.logger.warning(
-                    f"[ONEDRIVE] Compartido con {email_destinatario} pero no se obtuvo link en respuesta. "
-                    f"Usando webUrl del item."
-                )
-                
-                return {
-                    "link": web_url,
-                    "type": "user_invitation",
-                    "email": email_destinatario,
-                    "rol": rol
-                }
+                permission_id = permiso.get("id", "")
+            
+            self.logger.info(
+                f"[ONEDRIVE] Archivo/carpeta compartido con {email_destinatario} "
+                f"(rol: {rol}). Permiso creado sin email automático. Enlace: {web_url[:50]}..."
+            )
+            
+            return {
+                "link": web_url,
+                "type": "user_invitation",
+                "email": email_destinatario,
+                "rol": rol,
+                "permission_id": permission_id
+            }
                 
         except requests.HTTPError as e:
             error_msg = str(e)

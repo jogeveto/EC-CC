@@ -514,6 +514,13 @@ class ExpedicionService:
                 link = link_info.get("link", "")
                 if link:
                     self.logger.info(f"[CASO {case_id}] Archivo compartido con responsable exitosamente. Invitación enviada por correo.")
+                else:
+                    # Si el link viene vacío, usar webUrl como fallback
+                    if web_url:
+                        link = web_url
+                        self.logger.warning(f"[CASO {case_id}] Link compartido vacío, usando webUrl como fallback: {link[:50]}...")
+                    else:
+                        self.logger.error(f"[CASO {case_id}] No se obtuvo link ni webUrl después de compartir")
             else:
                 self.logger.warning(f"[CASO {case_id}] emailResponsable no configurado. Usando método de compartir tradicional.")
                 # Fallback al método anterior si no hay emailResponsable configurado
@@ -536,8 +543,13 @@ class ExpedicionService:
             # Enviar email al responsable notificando el error
             self._enviar_email_error_compartir(caso, "Copias", error_msg, link)
         
+        # Validación final: si aún no hay link, usar webUrl o lanzar error
         if not link:
-            raise ValueError("No se obtuvo enlace del archivo en OneDrive")
+            if web_url:
+                link = web_url
+                self.logger.warning(f"[CASO {case_id}] Link final vacío, usando webUrl: {link[:50]}...")
+            else:
+                raise ValueError("No se obtuvo enlace del archivo en OneDrive")
         
         plantilla = self._obtener_plantilla_email("Copias", subcategoria_id, "onedrive")
         cuerpo_con_link = plantilla["cuerpo"].replace("{link}", link)
@@ -971,6 +983,13 @@ class ExpedicionService:
                 link = link_info.get("link", "")
                 if link:
                     self.logger.info(f"[ONEDRIVE] Carpeta compartida con destinatario exitosamente. Invitación enviada por correo.")
+                else:
+                    # Si el link viene vacío, usar webUrl como fallback
+                    if web_url:
+                        link = web_url
+                        self.logger.warning(f"[CASO {case_id}] Link compartido vacío, usando webUrl como fallback: {link[:50]}...")
+                    else:
+                        self.logger.error(f"[CASO {case_id}] No se obtuvo link ni webUrl después de compartir")
             else:
                 self.logger.warning(f"[CASO {case_id}] No se encontró email destinatario (invt_correoelectronico). Usando método de compartir tradicional.")
                 # Fallback al método anterior si no hay email destinatario
@@ -993,8 +1012,13 @@ class ExpedicionService:
             # Enviar email al responsable notificando el error
             self._enviar_email_error_compartir(caso, "CopiasOficiales", error_msg, link)
         
+        # Validación final: si aún no hay link, usar webUrl o lanzar error
         if not link:
-            raise ValueError("No se obtuvo enlace de la carpeta en OneDrive")
+            if web_url:
+                link = web_url
+                self.logger.warning(f"[CASO {case_id}] Link final vacío, usando webUrl: {link[:50]}...")
+            else:
+                raise ValueError("No se obtuvo enlace de la carpeta en OneDrive")
         
         # Construir la ruta completa de OneDrive
         nombre_carpeta = Path(carpeta_organizada).name
