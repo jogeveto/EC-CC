@@ -13,7 +13,7 @@ Funcionalidades:
 - Generación y organización de archivos PDF
 """
 
-from __future__ import annotations  # Makes all annotations strings - no runtime evaluation
+from __future__ import annotations
 
 import os
 import sys
@@ -23,8 +23,10 @@ from typing import TYPE_CHECKING, cast, Dict, Any
 if TYPE_CHECKING:
     from ExpedicionCopias.services.expedicion_service import ExpedicionService
 
-# Agregar shared, libs y directorio actual del módulo al path
-try:  # Permite importación fuera de Rocketbot (tests unitarios)
+# ============================================
+# CONFIGURACIÓN DE PATHS (NO MODIFICAR)
+# ============================================
+try:
     tmp_global_obj  # type: ignore[name-defined]
 except NameError:  # pragma: no cover
     tmp_global_obj = {"basepath": ""}
@@ -38,98 +40,50 @@ except NameError:  # pragma: no cover
     def PrintException():  # noqa: D401, N802
         return None
 
-
 base_path = tmp_global_obj["basepath"]
-modules_path = base_path + "modules" + os.sep  # Path para importar 'shared'
+modules_path = base_path + "modules" + os.sep
 shared_path = modules_path + "shared" + os.sep
 expedicion_module_path = modules_path + "ExpedicionCopias" + os.sep
 libs_path = expedicion_module_path + "libs" + os.sep
 
-# Agregar modules_path PRIMERO para que 'import shared' funcione
+# Agregar paths al sys.path
 if modules_path not in sys.path:
     sys.path.insert(0, modules_path)
 if shared_path not in sys.path:
     sys.path.append(shared_path)
 if expedicion_module_path not in sys.path:
-    sys.path.insert(0, expedicion_module_path)  # Prioridad alta para el módulo actual
-if libs_path not in sys.path:
-    sys.path.insert(0, libs_path)  # Prioridad alta para las dependencias
+    sys.path.insert(0, expedicion_module_path)
+# Solo agregar libs_path si existe (opcional - para librerías vendored)
+if os.path.exists(libs_path) and libs_path not in sys.path:
+    sys.path.insert(0, libs_path)
 
-# Importar utilidades compartidas
+# ============================================
+# IMPORTS DE SHARED
+# ============================================
 import logging
 from shared.utils.logger import get_logger
 from shared.utils.config_helper import load_config_from_param
 
-# Definir función dummy primero (fallback)
-def establecer_configuracion_global(logs_config=None, ruta_base=None):
-    """Función dummy cuando establecer_configuracion_global no está disponible."""
-    pass
-
-# Intentar importar establecer_configuracion_global y reemplazar la dummy si está disponible
-try:
-    from shared.utils.logger import establecer_configuracion_global as _establecer_config_global
-    establecer_configuracion_global = _establecer_config_global
-except (ImportError, AttributeError):
-    # Mantener la función dummy si no está disponible
-    pass
-
-# Logger del módulo
+# ============================================
+# CONFIGURACIÓN DEL LOGGER
+# ============================================
 logger = get_logger("ExpedicionCopiasModule")
-
-# Variable para rastrear si el logger ya fue configurado
 _logger_configurado = False
 
 
 def _inicializar_logger_modulo(config: Dict[str, Any]) -> None:
-    """
-    Configura el logger del módulo una sola vez usando la configuración proporcionada.
-    
-    Args:
-        config: Diccionario de configuración que puede contener:
-            - Logs: Configuración de logs (RutaLogAuditoria, NombreLogAuditoria, etc.)
-            - Globales: Configuración global (RutaBaseProyecto, etc.)
-    """
+    """Configura el logger del módulo."""
     global _logger_configurado, logger
-    
+
     if _logger_configurado:
-        return  # Ya configurado, no hacer nada
-    
-    # Extraer configuración de logs y ruta base
-    logs_config = None
-    ruta_base = None
-    
-    # Intentar obtener Logs directamente
-    if "Logs" in config:
-        logs_config = config.get("Logs")
-    
-    # Intentar obtener Globales directamente
-    if "Globales" in config:
-        globales = config.get("Globales", {})
-        if isinstance(globales, dict):
-            ruta_base = globales.get("RutaBaseProyecto")
-    
-    # Si no se encontró, intentar buscar en otras estructuras posibles
-    if not logs_config:
-        for key in ["Logs", "logs", "LOG"]:
-            if key in config:
-                logs_config = config.get(key)
-                break
-    
-    if not ruta_base:
-        for key in ["Globales", "globales", "GLOBAL"]:
-            if key in config:
-                globales = config.get(key, {})
-                if isinstance(globales, dict):
-                    ruta_base = globales.get("RutaBaseProyecto") or globales.get("ruta_base") or globales.get("RutaBase")
-                    if ruta_base:
-                        break
-    
-    # Preparar configuración para setup_logger
+        return
+
+    logs_config = config.get("Logs")
+    ruta_base = config.get("Globales", {}).get("RutaBaseProyecto")
+
     config_para_logger = None
-    
-    if logs_config and isinstance(logs_config, dict) and logs_config:
+    if logs_config and isinstance(logs_config, dict):
         ya_normalizado = "auditoria" in logs_config or "sistema" in logs_config
-        
         if ya_normalizado:
             config_para_logger = logs_config
         else:
@@ -142,51 +96,33 @@ def _inicializar_logger_modulo(config: Dict[str, Any]) -> None:
             "Logs": {},
             "Globales": {"RutaBaseProyecto": ruta_base}
         }
-    
-    # Establecer configuración global para que todos los loggers la usen
+
     try:
+        from shared.utils.logger import establecer_configuracion_global
         establecer_configuracion_global(config_para_logger, ruta_base)
-    except NameError:
+    except (ImportError, AttributeError):
         pass
-    
-    # Reconfigurar el logger con la configuración proporcionada
+
     try:
         from shared.utils.logger import setup_logger
         logger_obj = setup_logger("ExpedicionCopiasModule", logs_config=config_para_logger, ruta_base=ruta_base)
-    except NameError:
-        from shared.utils.logger import setup_logger
-        logger_obj = setup_logger("ExpedicionCopiasModule", logs_config=config_para_logger, ruta_base=ruta_base)
-    
-    # Actualizar el logger global del módulo
-    global logger
-    logger = logger_obj
-    
-    # Verificar que los handlers se agregaron correctamente
-    try:
-        if logger and logger.handlers:
-            tiene_file_handler = any(isinstance(h, logging.FileHandler) for h in logger.handlers)
-            if not tiene_file_handler:
-                try:
-                    from shared.utils.logger import _configurar_handlers_automaticos
-                    _configurar_handlers_automaticos(logger, logs_config=config_para_logger, ruta_base=ruta_base)
-                except (ImportError, AttributeError):
-                    pass
+        logger = logger_obj
     except Exception:
         pass
-    
+
     _logger_configurado = True
 
 
 def _import_expedicion_service(module_path: str) -> type[ExpedicionService]:
     """
     Importa ExpedicionService con soporte completo para typing.
-    
+
     Intenta importación normal primero (funciona en IDE/desarrollo y preserva typing),
     luego fallback a importlib (funciona en Rocketbot).
-    
+
     Args:
         module_path: Ruta base del módulo ExpedicionCopias
-        
+
     Returns:
         Clase ExpedicionService
     """
@@ -196,48 +132,51 @@ def _import_expedicion_service(module_path: str) -> type[ExpedicionService]:
         return ExpedicionService  # type: ignore[return-value]
     except (ImportError, ModuleNotFoundError):
         pass
-    
+
     # Try 2: Full module path import - also preserves typing
     try:
         from services.expedicion_service import ExpedicionService
         return ExpedicionService  # type: ignore[return-value]
     except (ImportError, ModuleNotFoundError):
         pass
-    
+
     # Try 3: importlib fallback (works in Rocketbot)
     import importlib.util
     expedicion_service_path = module_path + "services" + os.sep + "expedicion_service.py"
     spec = importlib.util.spec_from_file_location("expedicion_service", expedicion_service_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"No se pudo cargar expedicion_service desde {expedicion_service_path}")
-    
+
     expedicion_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(expedicion_module)
-    
+
     if not hasattr(expedicion_module, "ExpedicionService"):
         raise ImportError("ExpedicionService no encontrado en expedicion_service.py")
-    
+
     return cast(type[ExpedicionService], expedicion_module.ExpedicionService)  # type: ignore[return-value, type-arg]
 
 
-# Obtener el módulo que fue invocado
+# ============================================
+# PUNTO DE ENTRADA ROCKETBOT
+# ============================================
 module = GetParams("module")
 
 try:
     if module == "procesar_copias":
         """
         Procesa casos de COPIAS (particulares).
-        
+
         Parámetros:
             - config: Diccionario de configuración o ruta a archivo JSON
             - result: Variable donde guardar el resultado
-        
+
         Flujo:
             1. Obtiene configuración y variables de Rocketbot
             2. Inicializa ExpedicionService
             3. Ejecuta procesar_particulares()
             4. Retorna resumen de procesamiento
         """
+        logger.info("[INICIO] Procesamiento de copias (particulares)")
         config_param = GetParams("config")
         result_var = GetParams("result")
 
@@ -253,14 +192,14 @@ try:
             dynamics_client_secret = GetParams("dynamics_client_secret")
             docuware_password = GetParams("docuware_password")
             database_password = GetParams("database_password")
-            
+
             if not graph_client_secret:
                 raise ValueError("Variable de Rocketbot 'graph_client_secret' no está configurada")
             if not dynamics_client_secret:
                 raise ValueError("Variable de Rocketbot 'dynamics_client_secret' no está configurada")
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
-            
+
             # Agregar secrets a la configuración
             config["graph_client_secret"] = graph_client_secret
             config["dynamics_client_secret"] = dynamics_client_secret
@@ -273,14 +212,14 @@ try:
             service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
             resultado = service.procesar_particulares()
 
-            logger.info(f"Procesamiento de copias completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
+            logger.info(f"[FIN] Procesamiento completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
 
             if result_var:
                 SetVar(result_var, resultado)
 
         except Exception as e:
             error_msg = f"Error al procesar copias: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"[ERROR] {error_msg}", exc_info=True)
             resultado = {"status": "error", "message": error_msg, "casos_procesados": 0, "casos_error": 0}
             if result_var:
                 SetVar(result_var, resultado)
@@ -290,17 +229,18 @@ try:
     elif module == "procesar_copias_oficiales":
         """
         Procesa casos de COPIAS ENTIDADES OFICIALES.
-        
+
         Parámetros:
             - config: Diccionario de configuración o ruta a archivo JSON
             - result: Variable donde guardar el resultado
-        
+
         Flujo:
             1. Obtiene configuración y variables de Rocketbot
             2. Inicializa ExpedicionService
             3. Ejecuta procesar_oficiales()
             4. Retorna resumen de procesamiento
         """
+        logger.info("[INICIO] Procesamiento de copias oficiales")
         config_param = GetParams("config")
         result_var = GetParams("result")
 
@@ -316,14 +256,14 @@ try:
             dynamics_client_secret = GetParams("dynamics_client_secret")
             docuware_password = GetParams("docuware_password")
             database_password = GetParams("database_password")
-            
+
             if not graph_client_secret:
                 raise ValueError("Variable de Rocketbot 'graph_client_secret' no está configurada")
             if not dynamics_client_secret:
                 raise ValueError("Variable de Rocketbot 'dynamics_client_secret' no está configurada")
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
-            
+
             # Agregar secrets a la configuración
             config["graph_client_secret"] = graph_client_secret
             config["dynamics_client_secret"] = dynamics_client_secret
@@ -336,14 +276,14 @@ try:
             service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
             resultado = service.procesar_oficiales()
 
-            logger.info(f"Procesamiento de copias oficiales completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
+            logger.info(f"[FIN] Procesamiento completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
 
             if result_var:
                 SetVar(result_var, resultado)
 
         except Exception as e:
             error_msg = f"Error al procesar copias oficiales: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"[ERROR] {error_msg}", exc_info=True)
             resultado = {"status": "error", "message": error_msg, "casos_procesados": 0, "casos_error": 0}
             if result_var:
                 SetVar(result_var, resultado)
@@ -353,11 +293,12 @@ try:
     elif module == "health":
         """
         Verifica el estado de conexión con CRM, DocuWare, Graph API y Base de Datos.
-        
+
         Parámetros:
             - config: Diccionario de configuración o ruta a archivo JSON
             - result: Variable donde guardar el resultado
         """
+        logger.info("[INICIO] Health check")
         config_param = GetParams("config")
         result_var = GetParams("result")
 
@@ -373,14 +314,14 @@ try:
             dynamics_client_secret = GetParams("dynamics_client_secret")
             docuware_password = GetParams("docuware_password")
             database_password = GetParams("database_password")
-            
+
             if not graph_client_secret:
                 raise ValueError("Variable de Rocketbot 'graph_client_secret' no está configurada")
             if not dynamics_client_secret:
                 raise ValueError("Variable de Rocketbot 'dynamics_client_secret' no está configurada")
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
-            
+
             # Agregar secrets a la configuración
             config["graph_client_secret"] = graph_client_secret
             config["dynamics_client_secret"] = dynamics_client_secret
@@ -394,12 +335,12 @@ try:
                 "graph": {"status": "unknown", "message": ""},
                 "database": {"status": "stub", "message": "Auditoría no implementada"}
             }
-            
+
             # Verificar conexión con Dynamics 365 CRM
             try:
                 from ExpedicionCopias.core.auth import Dynamics365Authenticator
                 from ExpedicionCopias.core.crm_client import CRMClient
-                
+
                 dynamics_config = config.get("Dynamics365", {})
                 dynamics_client_secret = config.get("dynamics_client_secret", "")
                 if not dynamics_client_secret:
@@ -414,24 +355,24 @@ try:
                 resultado["crm"] = {"status": "ok", "message": "Conexión exitosa"}
             except Exception as e:
                 resultado["crm"] = {"status": "error", "message": str(e)}
-            
+
             # Verificar conexión con DocuWare
             try:
                 from ExpedicionCopias.core.docuware_client import DocuWareClient
                 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
-                
+
                 rules_validator = ExcepcionesValidator([])
                 docuware = DocuWareClient(config, rules_validator)
                 docuware.autenticar()
                 resultado["docuware"] = {"status": "ok", "message": "Autenticación exitosa"}
             except Exception as e:
                 resultado["docuware"] = {"status": "error", "message": str(e)}
-            
+
             # Verificar conexión con Microsoft Graph API
             try:
                 from ExpedicionCopias.core.auth import AzureAuthenticator
                 from ExpedicionCopias.core.graph_client import GraphClient
-                
+
                 graph_config = config.get("GraphAPI", {})
                 graph_client_secret = config.get("graph_client_secret", "")
                 if not graph_client_secret:
@@ -447,12 +388,13 @@ try:
             except Exception as e:
                 resultado["graph"] = {"status": "error", "message": str(e)}
 
+            logger.info(f"[FIN] Health check completado")
             if result_var:
                 SetVar(result_var, resultado)
 
         except Exception as e:
             error_msg = f"Error en health check: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"[ERROR] {error_msg}", exc_info=True)
             resultado = {"status": "error", "message": error_msg}
             if result_var:
                 SetVar(result_var, resultado)
@@ -460,7 +402,6 @@ try:
             raise e
 
 except Exception as e:
-    logger.error(f"Error en módulo ExpedicionCopias: {e}")
+    logger.error(f"Error en módulo ExpedicionCopias: {e}", exc_info=True)
     PrintException()
     raise e
-
