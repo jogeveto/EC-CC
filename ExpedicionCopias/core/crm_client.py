@@ -10,6 +10,34 @@ class CRMClient:
 
     ENTITY_NAME = "sp_documentos"
     ID_FIELD = "sp_documentoid"
+    
+    # Lista completa de campos para $select (misma lista que DynamicsCrmApi/services/pqrs_service.py)
+    ALL_FIELDS = [
+        "_createdby_value", "_createdonbehalfby_value", "_invt_especificacion_value",
+        "_invt_tipodeatencion_value", "_modifiedby_value", "_modifiedonbehalfby_value", "_ownerid_value",
+        "_owningbusinessunit_value", "_owningteam_value", "_owninguser_value", "_sp_abogadoresponsable_value",
+        "_sp_agentedebackofficeasignado_value", "_sp_agentedecallcenterasignado_value", "_sp_casooriginal_value",
+        "_sp_categoriapqrs_value", "_sp_ciudad_value", "_sp_cliente_value", "_sp_contacto_value",
+        "_sp_contactopqrs_value", "_sp_departamento_value", "_sp_motivopqrs_value", "_sp_pais_value",
+        "_sp_responsable_value", "_sp_responsabledelbackoffice_value", "_sp_responsabledevolucionyreingreso_value",
+        "_sp_sedepqrs_value", "_sp_sederesponsable_value", "_sp_serviciopqrs_value", "_sp_subcategoriapqrs_value",
+        "_sp_tipodecasopqrs_value", "createdon", "emailaddress", "importsequencenumber", "invt_ansajustado",
+        "invt_correoelectronico", "invt_matriculasrequeridas", "invt_referenciadocumento", "modifiedon",
+        "overriddencreatedon", "sp_aceptaciondeterminos", "sp_anomina", "sp_ans", "sp_apellidos", "sp_callid",
+        "sp_celular", "sp_clienteescontacto", "sp_clienteescuenta", "sp_clonarcaso", "sp_consecutivo",
+        "sp_correoelectronico", "sp_descripcion", "sp_descripciondelasolucion", "sp_devolucioncompleja",
+        "sp_direccion", "sp_direccionip", "sp_documentoid", "sp_estadomigracion", "sp_fechacierrecnx",
+        "sp_fechadecierre", "sp_fechadecreacinreal", "sp_fechadevencimiento", "sp_fechadevolucioncompleja",
+        "sp_fechadiligenciamientodeinformacion", "sp_fechalimitederespuesta", "sp_fechalimitederespuestacnx",
+        "sp_guid", "sp_matriculainscripcion", "sp_medioderespuesta", "sp_mensajesdecorreoelecrtrnico",
+        "sp_mensajesdetextoalcelular", "sp_name", "sp_nit", "sp_nmerodedocumentocliente", "sp_nombredeagentequecrea",
+        "sp_nombredelaempresa", "sp_nombres", "sp_nroderadicado", "sp_numerodecaso", "sp_numerodedocumento",
+        "sp_numerodedocumentodelcontacto", "sp_origen", "sp_pqrsclonada", "sp_razonparaelestadomigracion",
+        "sp_reingresoaprobado", "sp_requiereactualizaciondeboletn", "sp_requiereactualizaciondelabel",
+        "sp_resolvercaso", "sp_solucionenprimercontacto", "sp_telefonofijo", "sp_tipodedocumento", "sp_tipopnc",
+        "sp_titulopqrs", "sp_turno", "sp_url_callcenter", "sp_url_seguimiento", "sp_usuarioresponsablelocalizador",
+        "statecode", "statuscode", "timezoneruleversionnumber", "utcconversiontimezonecode", "versionnumber"
+    ]
 
     def __init__(
         self, authenticator: Dynamics365Authenticator, base_url: str
@@ -203,8 +231,10 @@ class CRMClient:
             Lista de casos encontrados
         """
         all_records = []
+        select_fields = ",".join(self.ALL_FIELDS)
         params = {
             "$filter": filtro,
+            "$select": select_fields,
             "$top": 5000,
             "$orderby": "createdon desc"
         }

@@ -203,12 +203,19 @@ try:
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
 
-            # Agregar secrets a la configuración
+            # Agregar secrets a la configuración (sin modificar estructura original del JSON)
+            # Los secrets se obtienen de variables de Rocketbot y se agregan al config dict
             config["graph_client_secret"] = graph_client_secret
             config["dynamics_client_secret"] = dynamics_client_secret
-            config.setdefault("DocuWare", {})["password"] = docuware_password
+            # Asegurar que DocuWare existe antes de agregar password
+            if "DocuWare" not in config:
+                config["DocuWare"] = {}
+            config["DocuWare"]["password"] = docuware_password
+            # Database password es opcional
             if database_password:
-                config.setdefault("Database", {})["password"] = database_password
+                if "Database" not in config:
+                    config["Database"] = {}
+                config["Database"]["password"] = database_password
 
             # Import ExpedicionService with full typing support
             ExpedicionServiceClass = _import_expedicion_service(expedicion_module_path)
@@ -267,12 +274,19 @@ try:
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
 
-            # Agregar secrets a la configuración
+            # Agregar secrets a la configuración (sin modificar estructura original del JSON)
+            # Los secrets se obtienen de variables de Rocketbot y se agregan al config dict
             config["graph_client_secret"] = graph_client_secret
             config["dynamics_client_secret"] = dynamics_client_secret
-            config.setdefault("DocuWare", {})["password"] = docuware_password
+            # Asegurar que DocuWare existe antes de agregar password
+            if "DocuWare" not in config:
+                config["DocuWare"] = {}
+            config["DocuWare"]["password"] = docuware_password
+            # Database password es opcional
             if database_password:
-                config.setdefault("Database", {})["password"] = database_password
+                if "Database" not in config:
+                    config["Database"] = {}
+                config["Database"]["password"] = database_password
 
             # Import ExpedicionService with full typing support
             ExpedicionServiceClass = _import_expedicion_service(expedicion_module_path)
@@ -325,12 +339,19 @@ try:
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
 
-            # Agregar secrets a la configuración
+            # Agregar secrets a la configuración (sin modificar estructura original del JSON)
+            # Los secrets se obtienen de variables de Rocketbot y se agregan al config dict
             config["graph_client_secret"] = graph_client_secret
             config["dynamics_client_secret"] = dynamics_client_secret
-            config.setdefault("DocuWare", {})["password"] = docuware_password
+            # Asegurar que DocuWare existe antes de agregar password
+            if "DocuWare" not in config:
+                config["DocuWare"] = {}
+            config["DocuWare"]["password"] = docuware_password
+            # Database password es opcional
             if database_password:
-                config.setdefault("Database", {})["password"] = database_password
+                if "Database" not in config:
+                    config["Database"] = {}
+                config["Database"]["password"] = database_password
 
             resultado = {
                 "crm": {"status": "unknown", "message": ""},

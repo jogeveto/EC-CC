@@ -63,7 +63,7 @@
     },
     "CopiasOficiales": {
       "Subcategorias": ["69a7481b-fd00-f011-bae4-002248dec1fc", "08a7481b-fd00-f011-bae4-002248dec1fc"],
-      "Especificaciones": [],
+      "Especificaciones": ["63bac8be-07c7-f011-bbd3-00224836fe8e","0f0e25cb-07c7-f011-bbd3-00224836fe8e"],
       "FranjasHorarias": [
         {
           "inicio": "08:00",

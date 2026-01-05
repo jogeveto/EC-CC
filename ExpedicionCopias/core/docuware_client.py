@@ -107,8 +107,13 @@ class DocuWareClient:
         if not token_endpoint:
             token_endpoint = self._discover_token_endpoint()
         
-        username = self.config['username'].strip()
-        password = self.config['password'].strip()
+        username = self.config.get('username', '').strip()
+        password = self.config.get('password', '').strip()
+        
+        if not username:
+            raise ValueError("Username de DocuWare no está configurado en la sección DocuWare")
+        if not password:
+            raise ValueError("Password de DocuWare no está configurado. Verifica que la variable de Rocketbot 'docuware_password' esté configurada")
         
         data = {
             "grant_type": "password",

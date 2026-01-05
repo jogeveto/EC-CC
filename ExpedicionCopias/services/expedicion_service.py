@@ -142,7 +142,7 @@ class ExpedicionService:
     def _procesar_caso_particular(self, caso: Dict[str, Any]) -> None:
         """Procesa un caso individual de particulares."""
         case_id = caso.get("sp_documentoid", "")
-        matriculas_str = caso.get("sp_matricula", "") or ""
+        matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         
         if not matriculas:
@@ -351,7 +351,7 @@ class ExpedicionService:
         """Procesa un caso individual de entidades oficiales."""
         case_id = caso.get("sp_documentoid", "")
         radicado = caso.get("sp_ticketnumber", "") or case_id
-        matriculas_str = caso.get("sp_matricula", "") or ""
+        matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         
         if not matriculas:
