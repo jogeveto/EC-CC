@@ -289,8 +289,13 @@ class GraphClient:
                 endpoint = f"/users/{usuario_id}/drive/root:{carpeta_siguiente}"
                 self.get(endpoint)
             except requests.HTTPError:
-                carpeta_padre = carpeta_actual if carpeta_actual else "/"
-                endpoint = f"/users/{usuario_id}/drive/root:{carpeta_padre}/children"
+                if carpeta_actual:
+                    # Subcarpeta: usar formato root:{ruta}/children
+                    carpeta_padre = carpeta_actual.lstrip("/")
+                    endpoint = f"/users/{usuario_id}/drive/root:/{carpeta_padre}/children"
+                else:
+                    # Raíz: usar formato root/children
+                    endpoint = f"/users/{usuario_id}/drive/root/children"
                 
                 self.post(endpoint, data={
                     "name": parte,
