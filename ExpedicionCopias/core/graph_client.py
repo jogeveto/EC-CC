@@ -427,7 +427,7 @@ class GraphClient:
         endpoint = f"/users/{usuario_id}/drive/items/{item_id}/createLink"
         link_data = {
             "type": tipo_link,
-            "scope": "organization",
+            "scope": "anonymous",
         }
         
         response = self.post(endpoint, data=link_data)
@@ -435,8 +435,8 @@ class GraphClient:
         
         return {
             "link": link_info.get("webUrl"),
-            "type": "organization_link",
-            "scope": link_info.get("scope", "organization"),
+            "type": "anonymous_link",
+            "scope": link_info.get("scope", "anonymous"),
         }
 
     def obtener_enlace_compartido(self, item_id: str, usuario_id: str) -> str:

@@ -696,8 +696,14 @@ class ExpedicionService:
         
         self.logger.info(f"[ONEDRIVE] Carpeta compartida. Enlace obtenido: {link[:50]}...")
         
+        # Construir la ruta completa de OneDrive
+        nombre_carpeta = Path(carpeta_organizada).name
+        ruta_onedrive = f"{carpeta_base}/Oficiales/{nombre_carpeta}"
+        self.logger.info(f"[ONEDRIVE] Ruta completa en OneDrive: {ruta_onedrive}")
+        
         plantilla = self._obtener_plantilla_email("CopiasOficiales")
         cuerpo_con_link = plantilla["cuerpo"].replace("{link}", link)
+        cuerpo_con_link = cuerpo_con_link.replace("{onedrive_path}", ruta_onedrive)
         email_creador = self._obtener_email_creador(caso)
         
         self.logger.info(f"[ONEDRIVE] Enviando email a: {email_creador}")

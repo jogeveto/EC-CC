@@ -93,7 +93,7 @@
       "PlantillasEmail": {
         "default": {
           "asunto": "Entrega de Copias - Entidades Oficiales",
-          "cuerpo": "<html><body><p>Estimado/a,</p><p>Se adjunta la información solicitada.</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+          "cuerpo": "<html><body><p>Estimado/a,</p><p>Se adjunta la información solicitada.</p><p>La carpeta se encuentra disponible en OneDrive en la siguiente ruta: {onedrive_path}</p><p>Puede acceder a través del siguiente enlace: {link}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
         },
         "sinAdjuntos": {
           "asunto": "Notificación - Caso sin documentos disponibles",
