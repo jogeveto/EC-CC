@@ -170,13 +170,28 @@ class ExpedicionService:
         self.logger.info(f"[CASO {case_id}] Ruta temporal creada: {ruta_temporal}")
         
         try:
-            documentos_descargados = self._procesar_documentos_matricula(matriculas, ruta_temporal)
+            resultado_procesamiento = self._procesar_documentos_matricula(matriculas, ruta_temporal)
+            documentos_descargados = resultado_procesamiento["documentos_descargados"]
+            total_encontrados_docuware = resultado_procesamiento["total_encontrados_docuware"]
+            total_disponibles = resultado_procesamiento["total_disponibles"]
             
             self.logger.info(f"[CASO {case_id}] Documentos descargados: {len(documentos_descargados)}")
             
             if not documentos_descargados:
-                self.logger.error(f"[CASO {case_id}] No se descargaron documentos. Posibles causas: no se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)} o todas las descargas fallaron.")
-                raise ValueError("No se descargaron documentos")
+                # Distinguir entre "no hay documentos" vs "todos excluidos"
+                if total_encontrados_docuware == 0:
+                    # No hay documentos en DocuWare - esto es un error
+                    self.logger.error(f"[CASO {case_id}] No se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)}")
+                    raise ValueError("No se encontraron documentos en DocuWare")
+                elif total_disponibles == 0:
+                    # Todos los documentos fueron excluidos por excepciones - esto NO es un error
+                    self.logger.info(f"[CASO {case_id}] Todos los documentos fueron excluidos por excepciones. No se descargaron documentos (comportamiento esperado según reglas de negocio)")
+                    # No generar error, simplemente terminar el procesamiento sin descargar
+                    return
+                else:
+                    # Hay documentos disponibles pero las descargas fallaron
+                    self.logger.error(f"[CASO {case_id}] No se descargaron documentos aunque había {total_disponibles} disponible(s). Todas las descargas fallaron.")
+                    raise ValueError("Todas las descargas fallaron")
             
             pdf_unificado = os.path.join(ruta_temporal, f"unificado_{case_id}.pdf")
             self.logger.info(f"[CASO {case_id}] Unificando {len(documentos_descargados)} documentos en PDF: {pdf_unificado}")
@@ -215,7 +230,7 @@ class ExpedicionService:
 
     def _procesar_documentos_matricula(
         self, matriculas: List[str], ruta_temporal: str
-    ) -> List[str]:
+    ) -> Dict[str, Any]:
         """
         Procesa y descarga documentos para una lista de matrículas.
 
@@ -224,23 +239,35 @@ class ExpedicionService:
             ruta_temporal: Ruta temporal para descargas
 
         Returns:
-            Lista de rutas de documentos descargados
+            Diccionario con:
+            - 'documentos_descargados': Lista de rutas de documentos descargados
+            - 'total_encontrados_docuware': Total de documentos encontrados en DocuWare (antes del filtro)
+            - 'total_disponibles': Total de documentos disponibles después del filtro
         """
         documentos_descargados = []
         total_matriculas = len(matriculas)
+        total_encontrados_acumulado = 0
+        total_disponibles_acumulado = 0
         
         self.logger.info(f"[DESCARGAS] Iniciando procesamiento de {total_matriculas} matrícula(s)")
         
         for idx, matricula in enumerate(matriculas, 1):
             self.logger.info(f"[DESCARGAS] Procesando matrícula {idx}/{total_matriculas}: {matricula}")
             
-            documentos = self.docuware_client.buscar_documentos(matricula)
-            total_encontrados = len(documentos)
+            resultado_busqueda = self.docuware_client.buscar_documentos(matricula)
+            documentos = resultado_busqueda["documentos"]
+            total_encontrados_docuware = resultado_busqueda["total_encontrados"]
+            total_disponibles = resultado_busqueda["total_disponibles"]
             
-            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: {total_encontrados} documento(s) encontrado(s) después de aplicar filtros")
+            total_encontrados_acumulado += total_encontrados_docuware
+            total_disponibles_acumulado += total_disponibles
             
-            if total_encontrados == 0:
-                self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: No se encontraron documentos en DocuWare o todos fueron filtrados por excepciones")
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: {total_encontrados_docuware} documento(s) encontrado(s) en DocuWare, {total_disponibles} disponible(s) después de aplicar filtros")
+            
+            if total_encontrados_docuware == 0:
+                self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: No se encontraron documentos en DocuWare")
+            elif total_disponibles == 0:
+                self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Todos los documentos fueron excluidos por excepciones (comportamiento esperado según reglas de negocio)")
             
             descargas_exitosas = 0
             descargas_fallidas = 0
@@ -261,11 +288,15 @@ class ExpedicionService:
                     descargas_fallidas += 1
                     self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: Error descargando documento {doc_id}: {e}")
             
-            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Resumen - Encontrados: {total_encontrados}, Exitosos: {descargas_exitosas}, Fallidos: {descargas_fallidas}")
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Resumen - Encontrados en DocuWare: {total_encontrados_docuware}, Disponibles: {total_disponibles}, Exitosos: {descargas_exitosas}, Fallidos: {descargas_fallidas}")
         
         self.logger.info(f"[DESCARGAS] Resumen general - Total matrículas: {total_matriculas}, Total documentos descargados: {len(documentos_descargados)}")
         
-        return documentos_descargados
+        return {
+            "documentos_descargados": documentos_descargados,
+            "total_encontrados_docuware": total_encontrados_acumulado,
+            "total_disponibles": total_disponibles_acumulado
+        }
 
     def _enviar_pdf_pequeno(
         self, pdf_unificado: str, subcategoria_id: str, email_destino: str
@@ -435,13 +466,28 @@ class ExpedicionService:
         self.logger.info(f"[CASO {case_id}] Ruta temporal creada: {ruta_temporal}")
         
         try:
-            documentos_info = self._procesar_documentos_oficiales(matriculas, ruta_temporal)
+            resultado_procesamiento = self._procesar_documentos_oficiales(matriculas, ruta_temporal)
+            documentos_info = resultado_procesamiento["documentos_info"]
+            total_encontrados_docuware = resultado_procesamiento["total_encontrados_docuware"]
+            total_disponibles = resultado_procesamiento["total_disponibles"]
             
             self.logger.info(f"[CASO {case_id}] Documentos descargados: {len(documentos_info)}")
             
             if not documentos_info:
-                self.logger.error(f"[CASO {case_id}] No se descargaron documentos. Posibles causas: no se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)} o todas las descargas fallaron.")
-                raise ValueError("No se descargaron documentos")
+                # Distinguir entre "no hay documentos" vs "todos excluidos"
+                if total_encontrados_docuware == 0:
+                    # No hay documentos en DocuWare - esto es un error
+                    self.logger.error(f"[CASO {case_id}] No se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)}")
+                    raise ValueError("No se encontraron documentos en DocuWare")
+                elif total_disponibles == 0:
+                    # Todos los documentos fueron excluidos por excepciones - esto NO es un error
+                    self.logger.info(f"[CASO {case_id}] Todos los documentos fueron excluidos por excepciones. No se descargaron documentos (comportamiento esperado según reglas de negocio)")
+                    # No generar error, simplemente terminar el procesamiento sin descargar
+                    return
+                else:
+                    # Hay documentos disponibles pero las descargas fallaron
+                    self.logger.error(f"[CASO {case_id}] No se descargaron documentos aunque había {total_disponibles} disponible(s). Todas las descargas fallaron.")
+                    raise ValueError("Todas las descargas fallaron")
             
             self.logger.info(f"[CASO {case_id}] Organizando archivos por matrícula...")
             estructura = self.file_organizer.organizar_archivos(
@@ -475,7 +521,7 @@ class ExpedicionService:
 
     def _procesar_documentos_oficiales(
         self, matriculas: List[str], ruta_temporal: str
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Procesa y descarga documentos para entidades oficiales.
 
@@ -484,23 +530,35 @@ class ExpedicionService:
             ruta_temporal: Ruta temporal para descargas
 
         Returns:
-            Lista de diccionarios con información de documentos descargados
+            Diccionario con:
+            - 'documentos_info': Lista de diccionarios con información de documentos descargados
+            - 'total_encontrados_docuware': Total de documentos encontrados en DocuWare (antes del filtro)
+            - 'total_disponibles': Total de documentos disponibles después del filtro
         """
         documentos_info = []
         total_matriculas = len(matriculas)
+        total_encontrados_acumulado = 0
+        total_disponibles_acumulado = 0
         
         self.logger.info(f"[DESCARGAS] Iniciando procesamiento de {total_matriculas} matrícula(s)")
         
         for idx, matricula in enumerate(matriculas, 1):
             self.logger.info(f"[DESCARGAS] Procesando matrícula {idx}/{total_matriculas}: {matricula}")
             
-            documentos = self.docuware_client.buscar_documentos(matricula)
-            total_encontrados = len(documentos)
+            resultado_busqueda = self.docuware_client.buscar_documentos(matricula)
+            documentos = resultado_busqueda["documentos"]
+            total_encontrados_docuware = resultado_busqueda["total_encontrados"]
+            total_disponibles = resultado_busqueda["total_disponibles"]
             
-            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: {total_encontrados} documento(s) encontrado(s) después de aplicar filtros")
+            total_encontrados_acumulado += total_encontrados_docuware
+            total_disponibles_acumulado += total_disponibles
             
-            if total_encontrados == 0:
-                self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: No se encontraron documentos en DocuWare o todos fueron filtrados por excepciones")
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: {total_encontrados_docuware} documento(s) encontrado(s) en DocuWare, {total_disponibles} disponible(s) después de aplicar filtros")
+            
+            if total_encontrados_docuware == 0:
+                self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: No se encontraron documentos en DocuWare")
+            elif total_disponibles == 0:
+                self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Todos los documentos fueron excluidos por excepciones (comportamiento esperado según reglas de negocio)")
             
             descargas_exitosas = 0
             descargas_fallidas = 0
@@ -526,11 +584,15 @@ class ExpedicionService:
                     descargas_fallidas += 1
                     self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: Error descargando documento {doc_id}: {e}")
             
-            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Resumen - Encontrados: {total_encontrados}, Exitosos: {descargas_exitosas}, Fallidos: {descargas_fallidas}")
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Resumen - Encontrados en DocuWare: {total_encontrados_docuware}, Disponibles: {total_disponibles}, Exitosos: {descargas_exitosas}, Fallidos: {descargas_fallidas}")
         
         self.logger.info(f"[DESCARGAS] Resumen general - Total matrículas: {total_matriculas}, Total documentos descargados: {len(documentos_info)}")
         
-        return documentos_info
+        return {
+            "documentos_info": documentos_info,
+            "total_encontrados_docuware": total_encontrados_acumulado,
+            "total_disponibles": total_disponibles_acumulado
+        }
 
     def _subir_y_enviar_carpeta_oficial(
         self, carpeta_organizada: str, caso: Dict[str, Any]

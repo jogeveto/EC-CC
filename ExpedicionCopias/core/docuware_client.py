@@ -241,7 +241,7 @@ class DocuWareClient:
         if dialogs:
             self.search_dialog_id = dialogs[0].get('Id')
 
-    def buscar_documentos(self, matricula: str) -> List[Dict[str, Any]]:
+    def buscar_documentos(self, matricula: str) -> Dict[str, Any]:
         """
         Busca documentos por matrícula en DocuWare.
 
@@ -249,7 +249,10 @@ class DocuWareClient:
             matricula: Matrícula a buscar
 
         Returns:
-            Lista de documentos encontrados (filtrados por reglas de excepciones)
+            Diccionario con:
+            - 'documentos': Lista de documentos encontrados (filtrados por reglas de excepciones)
+            - 'total_encontrados': Total de documentos encontrados en DocuWare antes del filtro
+            - 'total_disponibles': Total de documentos disponibles después del filtro
         """
         self.logger.info(f"[BUSCAR] Iniciando búsqueda de documentos para matrícula: {matricula}")
         
@@ -320,16 +323,23 @@ class DocuWareClient:
         total_despues_filtro = len(all_documents)
         filtrados = total_encontrados - total_despues_filtro
         
+        # Log detallado de estadísticas
         self.logger.info(f"[BUSCAR] Matrícula {matricula}: {total_encontrados} documento(s) encontrado(s) en DocuWare")
-        if filtrados > 0:
-            self.logger.info(f"[BUSCAR] Matrícula {matricula}: {filtrados} documento(s) filtrado(s) por excepciones, {total_despues_filtro} documento(s) disponibles para descarga")
+        
+        if total_encontrados == 0:
+            self.logger.warning(f"[BUSCAR] Matrícula {matricula}: No se encontraron documentos en DocuWare")
+        elif filtrados > 0:
+            self.logger.info(f"[BUSCAR] Matrícula {matricula}: {filtrados} documento(s) excluido(s) por excepciones, {total_despues_filtro} documento(s) disponible(s) para descarga")
+            if total_despues_filtro == 0:
+                self.logger.info(f"[BUSCAR] Matrícula {matricula}: Todos los documentos fueron excluidos por excepciones (comportamiento esperado según reglas de negocio)")
         else:
-            self.logger.info(f"[BUSCAR] Matrícula {matricula}: {total_despues_filtro} documento(s) disponible(s) para descarga")
+            self.logger.info(f"[BUSCAR] Matrícula {matricula}: {total_despues_filtro} documento(s) disponible(s) para descarga (ninguno excluido)")
         
-        if total_despues_filtro == 0:
-            self.logger.warning(f"[BUSCAR] Matrícula {matricula}: No hay documentos disponibles para descarga")
-        
-        return all_documents
+        return {
+            "documentos": all_documents,
+            "total_encontrados": total_encontrados,
+            "total_disponibles": total_despues_filtro
+        }
 
     def descargar_documento(self, document_id: str, documento: Dict[str, Any], ruta: str) -> str:
         """

@@ -25,7 +25,7 @@ class ExcepcionesValidator:
             True si debe descargarse, False si debe excluirse
         """
         tipo_documento = self._obtener_campo(documento, "TRDNOMBREDOCUMENTO")
-        acto_registro = self._obtener_campo(documento, "Acto-Registro")
+        acto_registro = self._obtener_campo(documento, "ACTOREGISTRADO")
         
         if not tipo_documento:
             return True
@@ -34,12 +34,18 @@ class ExcepcionesValidator:
             excepcion_tipo = excepcion.get("tipoDocumento", "").strip()
             excepcion_acto = excepcion.get("actoRegistro", "").strip()
             
+            # Verificar si el tipo de documento coincide
             tipo_coincide = excepcion_tipo.lower() == tipo_documento.lower()
+            
+            # Verificar si el acto de registro coincide:
+            # - Si excepcion_acto está vacío: excluir TODOS los documentos de ese tipo (acto_coincide = True)
+            # - Si excepcion_acto tiene valor: excluir solo si coincide con acto_registro del documento
             acto_coincide = (
                 not excepcion_acto or 
                 excepcion_acto.lower() == acto_registro.lower()
             )
             
+            # Si ambos coinciden, el documento debe ser excluido
             if tipo_coincide and acto_coincide:
                 return False
         
