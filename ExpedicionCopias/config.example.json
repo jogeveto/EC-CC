@@ -48,6 +48,7 @@
           "actoRegistro": ""
         }
       ],
+      "emailResponsable": "responsable.copias@camaramedellin.com.co",
       "PlantillasEmail": {
         "08a7481b-fd00-f011-bae4-002248dec1fc": {
           "adjunto": {
@@ -57,6 +58,10 @@
           "onedrive": {
             "asunto": "Entrega de Copias - Enlace OneDrive",
             "cuerpo": "<html><body><p>Estimado/a,</p><p>Puede acceder a la información solicitada a través del siguiente enlace: {link}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+          },
+          "sinAdjuntos": {
+            "asunto": "Notificación - Caso sin documentos disponibles",
+            "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el caso con ID {case_id} y radicado {ticket_number} no tiene documentos disponibles para descargar debido a las reglas de negocio aplicadas.</p><p><strong>Información del caso:</strong></p><ul><li>ID Caso: {case_id}</li><li>Radicado: {ticket_number}</li><li>Matrículas: {matriculas}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
           }
         }
       }
@@ -84,10 +89,15 @@
           "actoRegistro": ""
         }
       ],
+      "emailResponsable": "responsable.copi oficiales@camaramedellin.com.co",
       "PlantillasEmail": {
         "default": {
           "asunto": "Entrega de Copias - Entidades Oficiales",
           "cuerpo": "<html><body><p>Estimado/a,</p><p>Se adjunta la información solicitada.</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+        },
+        "sinAdjuntos": {
+          "asunto": "Notificación - Caso sin documentos disponibles",
+          "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el caso con ID {case_id} y radicado {ticket_number} no tiene documentos disponibles para descargar debido a las reglas de negocio aplicadas.</p><p><strong>Información del caso:</strong></p><ul><li>ID Caso: {case_id}</li><li>Radicado: {ticket_number}</li><li>Matrículas: {matriculas}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
         }
       }
     }

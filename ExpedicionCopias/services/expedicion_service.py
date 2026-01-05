@@ -186,6 +186,8 @@ class ExpedicionService:
                 elif total_disponibles == 0:
                     # Todos los documentos fueron excluidos por excepciones - esto NO es un error
                     self.logger.info(f"[CASO {case_id}] Todos los documentos fueron excluidos por excepciones. No se descargaron documentos (comportamiento esperado según reglas de negocio)")
+                    # Enviar email al responsable
+                    self._enviar_email_sin_adjuntos(caso, "Copias")
                     # No generar error, simplemente terminar el procesamiento sin descargar
                     return
                 else:
@@ -367,6 +369,64 @@ class ExpedicionService:
         
         return cuerpo_con_link
 
+    def _enviar_email_sin_adjuntos(
+        self, caso: Dict[str, Any], tipo: str
+    ) -> None:
+        """
+        Envía email al responsable cuando no hay adjuntos disponibles por regla de negocio.
+
+        Args:
+            caso: Diccionario con información del caso
+            tipo: Tipo de caso ("Copias" o "CopiasOficiales")
+        """
+        case_id = caso.get("sp_documentoid", "N/A")
+        ticket_number = caso.get("sp_ticketnumber", "N/A")
+        matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+        matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+        matriculas_str_display = ", ".join(matriculas) if matriculas else "N/A"
+        
+        self.logger.info(f"[CASO {case_id}] Enviando email al responsable - Tipo: {tipo}, Radicado: {ticket_number}")
+        
+        # Obtener emailResponsable de la configuración
+        if tipo == "Copias":
+            config_seccion = self.config.get("ReglasNegocio", {}).get("Copias", {})
+            subcategoria_id = caso.get("_sp_subcategoriapqrs_value", "")
+        else:  # CopiasOficiales
+            config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+            subcategoria_id = ""
+        
+        email_responsable = config_seccion.get("emailResponsable", "")
+        
+        if not email_responsable:
+            self.logger.warning(f"[CASO {case_id}] emailResponsable no está configurado para {tipo}. No se enviará email.")
+            return
+        
+        # Obtener plantilla
+        plantilla = self._obtener_plantilla_email(tipo, subcategoria_id, "sinAdjuntos")
+        
+        if not plantilla.get("asunto") or not plantilla.get("cuerpo"):
+            self.logger.warning(f"[CASO {case_id}] Plantilla sinAdjuntos no encontrada o vacía para {tipo}. No se enviará email.")
+            return
+        
+        # Reemplazar placeholders en la plantilla
+        cuerpo = plantilla["cuerpo"].replace("{case_id}", case_id)
+        cuerpo = cuerpo.replace("{ticket_number}", ticket_number)
+        cuerpo = cuerpo.replace("{matriculas}", matriculas_str_display)
+        
+        # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
+        destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+        
+        try:
+            self.graph_client.enviar_email(
+                usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
+                asunto=plantilla["asunto"],
+                cuerpo=cuerpo,
+                destinatarios=destinatarios
+            )
+            self.logger.info(f"[CASO {case_id}] Email enviado exitosamente al responsable: {', '.join(destinatarios)}")
+        except Exception as e:
+            self.logger.error(f"[CASO {case_id}] Error enviando email al responsable: {e}")
+
     def _manejar_error_caso(self, caso: Dict[str, Any], error_msg: str) -> None:
         """
         Maneja el error de un caso enviando email si es posible.
@@ -482,6 +542,8 @@ class ExpedicionService:
                 elif total_disponibles == 0:
                     # Todos los documentos fueron excluidos por excepciones - esto NO es un error
                     self.logger.info(f"[CASO {case_id}] Todos los documentos fueron excluidos por excepciones. No se descargaron documentos (comportamiento esperado según reglas de negocio)")
+                    # Enviar email al responsable
+                    self._enviar_email_sin_adjuntos(caso, "CopiasOficiales")
                     # No generar error, simplemente terminar el procesamiento sin descargar
                     return
                 else:
@@ -677,6 +739,9 @@ class ExpedicionService:
         if tipo == "CopiasOficiales":
             copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
             plantillas = copias_oficiales_config.get("PlantillasEmail", {})
+            # Para sinAdjuntos, buscar directamente en PlantillasEmail
+            if variante == "sinAdjuntos":
+                return plantillas.get("sinAdjuntos", {"asunto": "", "cuerpo": ""})
             return plantillas.get("default", {"asunto": "", "cuerpo": ""})
         
         if tipo == "Copias":
