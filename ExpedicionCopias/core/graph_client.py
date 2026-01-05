@@ -412,6 +412,8 @@ class GraphClient:
     def compartir_carpeta(self, item_id: str, usuario_id: str, tipo_link: str = "view") -> Dict[str, Any]:
         """
         Comparte una carpeta/archivo en OneDrive y obtiene el enlace.
+        Intenta primero con scope "anonymous" para lectura pública.
+        Si el tenant tiene deshabilitado el compartir anónimo, usa "organization" como fallback.
 
         Args:
             item_id: ID del item (carpeta o archivo)
@@ -422,22 +424,54 @@ class GraphClient:
             Información del enlace compartido
 
         Raises:
-            requests.HTTPError: Si la operación falla
+            requests.HTTPError: Si todas las operaciones fallan
         """
         endpoint = f"/users/{usuario_id}/drive/items/{item_id}/createLink"
+        
+        # Intentar primero con scope "anonymous" (lectura pública)
         link_data = {
             "type": tipo_link,
             "scope": "anonymous",
         }
         
-        response = self.post(endpoint, data=link_data)
-        link_info = response.get("link", {}) if isinstance(response, dict) else {}
-        
-        return {
-            "link": link_info.get("webUrl"),
-            "type": "anonymous_link",
-            "scope": link_info.get("scope", "anonymous"),
-        }
+        try:
+            response = self.post(endpoint, data=link_data)
+            link_info = response.get("link", {}) if isinstance(response, dict) else {}
+            
+            self.logger.info(f"[ONEDRIVE] Carpeta compartida con acceso público (anonymous)")
+            return {
+                "link": link_info.get("webUrl"),
+                "type": "anonymous_link",
+                "scope": link_info.get("scope", "anonymous"),
+            }
+        except requests.HTTPError as e:
+            # Si el compartir anónimo está deshabilitado (403), usar "organization" como fallback
+            if e.response and e.response.status_code == 403:
+                error_msg = str(e)
+                if "sharing has been disabled" in error_msg.lower() or "forbidden" in error_msg.lower():
+                    self.logger.warning(
+                        f"[ONEDRIVE] El compartir anónimo está deshabilitado en el tenant. "
+                        f"Usando scope 'organization' como fallback. "
+                        f"NOTA: El link solo será accesible para usuarios de la organización."
+                    )
+                    
+                    # Usar "organization" como fallback
+                    link_data_fallback = {
+                        "type": tipo_link,
+                        "scope": "organization",
+                    }
+                    
+                    response = self.post(endpoint, data=link_data_fallback)
+                    link_info = response.get("link", {}) if isinstance(response, dict) else {}
+                    
+                    return {
+                        "link": link_info.get("webUrl"),
+                        "type": "organization_link",
+                        "scope": link_info.get("scope", "organization"),
+                    }
+            
+            # Si es otro error, relanzarlo
+            raise
 
     def obtener_enlace_compartido(self, item_id: str, usuario_id: str) -> str:
         """
