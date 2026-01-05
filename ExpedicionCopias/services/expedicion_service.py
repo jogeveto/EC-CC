@@ -33,6 +33,7 @@ class ExpedicionService:
         
         self.casos_procesados: List[Dict[str, Any]] = []
         self.casos_error: List[Dict[str, Any]] = []
+        self.casos_pendientes: List[Dict[str, Any]] = []
         
         self._inicializar_clientes()
         self._inicializar_validadores()
@@ -87,6 +88,135 @@ class ExpedicionService:
         self.pdf_merger = PDFMerger()
         self.file_organizer = FileOrganizer()
 
+    def _obtener_ruta_lock(self, tipo: str) -> Path:
+        """
+        Obtiene la ruta del archivo lock para un tipo de proceso.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            
+        Returns:
+            Path del archivo lock
+        """
+        ruta_base = self.config.get("Globales", {}).get("RutaBaseProyecto", ".")
+        ruta_base_path = Path(ruta_base)
+        ruta_base_path.mkdir(parents=True, exist_ok=True)
+        
+        nombre_lock = f".lock_expedicion_{tipo.lower()}"
+        return ruta_base_path / nombre_lock
+
+    def _crear_lock(self, tipo: str) -> bool:
+        """
+        Crea un archivo lock para indicar que el proceso está ejecutándose.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            
+        Returns:
+            True si se creó el lock, False si ya existe y está activo
+        """
+        lock_path = self._obtener_ruta_lock(tipo)
+        
+        # Verificar si el lock existe y está activo
+        if lock_path.exists():
+            try:
+                # Leer timestamp del lock
+                with open(lock_path, 'r') as f:
+                    timestamp_str = f.read().strip()
+                    timestamp = float(timestamp_str)
+                    # Si el lock tiene menos de 24 horas, considerarlo activo
+                    tiempo_transcurrido = datetime.now().timestamp() - timestamp
+                    if tiempo_transcurrido < 86400:  # 24 horas en segundos
+                        self.logger.warning(f"Lock existente encontrado para {tipo}. Proceso ya en ejecución.")
+                        return False
+                    else:
+                        # Lock antiguo, eliminarlo
+                        self.logger.warning(f"Lock antiguo encontrado para {tipo}. Eliminándolo.")
+                        lock_path.unlink()
+            except (ValueError, OSError) as e:
+                self.logger.warning(f"Error leyendo lock existente: {e}. Eliminándolo.")
+                lock_path.unlink()
+        
+        # Crear nuevo lock
+        try:
+            timestamp = datetime.now().timestamp()
+            with open(lock_path, 'w') as f:
+                f.write(str(timestamp))
+            self.logger.info(f"Lock creado para {tipo} en {lock_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error creando lock: {e}")
+            return False
+
+    def _eliminar_lock(self, tipo: str) -> None:
+        """
+        Elimina el archivo lock.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+        """
+        lock_path = self._obtener_ruta_lock(tipo)
+        try:
+            if lock_path.exists():
+                lock_path.unlink()
+                self.logger.info(f"Lock eliminado para {tipo}")
+        except Exception as e:
+            self.logger.error(f"Error eliminando lock: {e}")
+
+    def _enviar_notificacion_inicio(self, tipo: str) -> None:
+        """
+        Envía notificación de inicio de ejecución al emailResponsable.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+        """
+        try:
+            # Obtener configuración según el tipo
+            if tipo == "Copias":
+                config_seccion = self.config.get("ReglasNegocio", {}).get("Copias", {})
+                tipo_notificacion = "Copias"
+            else:  # CopiasOficiales
+                config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+                tipo_notificacion = "CopiasOficiales"
+            
+            email_responsable = config_seccion.get("emailResponsable", "")
+            
+            if not email_responsable:
+                self.logger.warning(f"emailResponsable no está configurado para {tipo}. No se enviará notificación de inicio.")
+                return
+            
+            # Obtener plantilla de notificación
+            notificaciones_config = self.config.get("Notificaciones", {})
+            inicio_config = notificaciones_config.get("InicioEjecucion", {})
+            plantilla_config = inicio_config.get(tipo_notificacion, {})
+            
+            if not plantilla_config:
+                self.logger.warning(f"Plantilla de notificación de inicio no encontrada para {tipo}. No se enviará notificación.")
+                return
+            
+            asunto = plantilla_config.get("asunto", "")
+            cuerpo = plantilla_config.get("cuerpo", "")
+            
+            if not asunto or not cuerpo:
+                self.logger.warning(f"Plantilla de notificación de inicio incompleta para {tipo}. No se enviará notificación.")
+                return
+            
+            # Reemplazar placeholders
+            fecha_inicio = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cuerpo = cuerpo.replace("{fecha_inicio}", fecha_inicio)
+            
+            # Enviar email
+            destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+            self.graph_client.enviar_email(
+                usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
+                asunto=asunto,
+                cuerpo=cuerpo,
+                destinatarios=destinatarios
+            )
+            self.logger.info(f"Notificación de inicio enviada exitosamente a {', '.join(destinatarios)} para {tipo}")
+        except Exception as e:
+            self.logger.error(f"Error enviando notificación de inicio para {tipo}: {e}")
+
     def procesar_particulares(self) -> Dict[str, Any]:
         """
         Procesa casos de COPIAS (particulares).
@@ -126,8 +256,17 @@ class ExpedicionService:
         self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
         
         for caso in casos:
+            # Validar franja horaria antes de procesar cada caso
             if not self.time_validator.debe_ejecutar():
-                self.logger.warning("Fuera de franja horaria, deteniendo procesamiento")
+                case_id = caso.get('sp_documentoid', 'N/A')
+                ticket_number = caso.get('sp_ticketnumber', 'N/A')
+                self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
+                # Agregar caso actual y todos los restantes a pendientes
+                self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
+                # Agregar casos restantes a pendientes
+                indice_actual = casos.index(caso)
+                for caso_restante in casos[indice_actual + 1:]:
+                    self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
                 break
             
             case_id = caso.get('sp_documentoid', 'N/A')
@@ -152,6 +291,7 @@ class ExpedicionService:
         return {
             "casos_procesados": len(self.casos_procesados),
             "casos_error": len(self.casos_error),
+            "casos_pendientes": len(self.casos_pendientes),
             "reporte_path": reporte_path
         }
 
@@ -356,14 +496,31 @@ class ExpedicionService:
         item_id = info_item.get("id", "")
         web_url = info_item.get("webUrl", "")
         
-        # Intentar compartir el archivo
+        # Obtener emailResponsable de la configuración para compartir
+        copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})
+        email_responsable = copias_config.get("emailResponsable", "")
+        
+        # Intentar compartir el archivo con el responsable por correo
         link = ""
         try:
-            self.logger.info(f"[CASO {case_id}] Intentando compartir archivo en OneDrive...")
-            link_info = self.graph_client.compartir_carpeta(item_id, usuario_email)
-            link = link_info.get("link", "")
-            if link:
-                self.logger.info(f"[CASO {case_id}] Archivo compartido exitosamente")
+            if email_responsable:
+                self.logger.info(f"[CASO {case_id}] Compartiendo archivo en OneDrive con responsable: {email_responsable}")
+                link_info = self.graph_client.compartir_con_usuario(
+                    item_id=item_id,
+                    usuario_id=usuario_email,
+                    email_destinatario=email_responsable,
+                    rol="read"
+                )
+                link = link_info.get("link", "")
+                if link:
+                    self.logger.info(f"[CASO {case_id}] Archivo compartido con responsable exitosamente. Invitación enviada por correo.")
+            else:
+                self.logger.warning(f"[CASO {case_id}] emailResponsable no configurado. Usando método de compartir tradicional.")
+                # Fallback al método anterior si no hay emailResponsable configurado
+                link_info = self.graph_client.compartir_carpeta(item_id, usuario_email)
+                link = link_info.get("link", "")
+                if link:
+                    self.logger.info(f"[CASO {case_id}] Archivo compartido exitosamente (método tradicional)")
         except Exception as e:
             error_msg = str(e)
             self.logger.warning(f"[CASO {case_id}] No se pudo compartir el archivo en OneDrive: {error_msg}")
@@ -566,8 +723,17 @@ class ExpedicionService:
         self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
         
         for caso in casos:
+            # Validar franja horaria antes de procesar cada caso
             if not self.time_validator.debe_ejecutar():
-                self.logger.warning("Fuera de franja horaria, deteniendo procesamiento")
+                case_id = caso.get('sp_documentoid', 'N/A')
+                ticket_number = caso.get('sp_ticketnumber', 'N/A')
+                self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
+                # Agregar caso actual y todos los restantes a pendientes
+                self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
+                # Agregar casos restantes a pendientes
+                indice_actual = casos.index(caso)
+                for caso_restante in casos[indice_actual + 1:]:
+                    self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
                 break
             
             case_id = caso.get('sp_documentoid', 'N/A')
@@ -592,6 +758,7 @@ class ExpedicionService:
         return {
             "casos_procesados": len(self.casos_procesados),
             "casos_error": len(self.casos_error),
+            "casos_pendientes": len(self.casos_pendientes),
             "reporte_path": reporte_path
         }
 
@@ -774,18 +941,45 @@ class ExpedicionService:
             raise ValueError("No se obtuvo ID de carpeta después de la subida")
         
         web_url = info_carpeta.get("webUrl", "")
+        case_id = caso.get("sp_documentoid", "N/A")
         
-        # Intentar compartir la carpeta
+        # Obtener email del destinatario: invt_correoelectronico del caso
+        # En modo QA, usar emailQa de la configuración global
+        email_destinatario = caso.get("invt_correoelectronico", "")
+        globales_config = self.config.get("Globales", {})
+        modo = globales_config.get("modo", "PROD")
+        
+        if modo.upper() == "QA":
+            email_qa = globales_config.get("emailQa", "")
+            if email_qa:
+                email_destinatario = email_qa
+                self.logger.info(f"[CASO {case_id}] Modo QA: Usando emailQa ({email_qa}) para compartir")
+            else:
+                self.logger.warning(f"[CASO {case_id}] Modo QA pero emailQa no configurado. Usando invt_correoelectronico")
+        
+        # Intentar compartir la carpeta con el destinatario por correo
         link = ""
         try:
-            self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id})...")
-            link_info = self.graph_client.compartir_carpeta(carpeta_id, usuario_email)
-            link = link_info.get("link", "")
-            if link:
-                self.logger.info(f"[ONEDRIVE] Carpeta compartida. Enlace obtenido: {link[:50]}...")
+            if email_destinatario:
+                self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id}) con destinatario: {email_destinatario}")
+                link_info = self.graph_client.compartir_con_usuario(
+                    item_id=carpeta_id,
+                    usuario_id=usuario_email,
+                    email_destinatario=email_destinatario,
+                    rol="read"
+                )
+                link = link_info.get("link", "")
+                if link:
+                    self.logger.info(f"[ONEDRIVE] Carpeta compartida con destinatario exitosamente. Invitación enviada por correo.")
+            else:
+                self.logger.warning(f"[CASO {case_id}] No se encontró email destinatario (invt_correoelectronico). Usando método de compartir tradicional.")
+                # Fallback al método anterior si no hay email destinatario
+                link_info = self.graph_client.compartir_carpeta(carpeta_id, usuario_email)
+                link = link_info.get("link", "")
+                if link:
+                    self.logger.info(f"[ONEDRIVE] Carpeta compartida. Enlace obtenido: {link[:50]}...")
         except Exception as e:
             error_msg = str(e)
-            case_id = caso.get("sp_documentoid", "N/A")
             self.logger.warning(f"[CASO {case_id}] No se pudo compartir la carpeta en OneDrive: {error_msg}")
             
             # Usar webUrl como fallback
@@ -1002,6 +1196,16 @@ class ExpedicionService:
                 "Error",
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 item.get("mensaje", "")
+            ])
+        
+        for item in self.casos_pendientes:
+            caso = item.get("caso", {})
+            ws.append([
+                caso.get("sp_documentoid", ""),
+                caso.get("sp_ticketnumber", ""),
+                "Pendiente",
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                item.get("mensaje", "No procesado")
             ])
         
         self._ajustar_ancho_columnas(ws)

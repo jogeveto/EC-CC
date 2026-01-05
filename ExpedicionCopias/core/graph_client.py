@@ -473,6 +473,106 @@ class GraphClient:
             # Si es otro error, relanzarlo
             raise
 
+    def compartir_con_usuario(
+        self, item_id: str, usuario_id: str, email_destinatario: str, rol: str = "read"
+    ) -> Dict[str, Any]:
+        """
+        Comparte un archivo/carpeta en OneDrive con un usuario específico por correo electrónico.
+        Envía una invitación automática al usuario con acceso al archivo/carpeta.
+
+        Args:
+            item_id: ID del item (carpeta o archivo) en OneDrive
+            usuario_id: ID o email del usuario propietario del archivo
+            email_destinatario: Email del destinatario con quien compartir
+            rol: Rol de acceso ("read" para lectura, "write" para edición)
+
+        Returns:
+            Diccionario con información del permiso creado, incluyendo el enlace de acceso
+
+        Raises:
+            requests.HTTPError: Si la operación falla
+        """
+        endpoint = f"/users/{usuario_id}/drive/items/{item_id}/invite"
+        
+        # Mapear rol a roles de Microsoft Graph
+        roles = []
+        if rol == "write":
+            roles = ["write"]
+        else:
+            roles = ["read"]
+        
+        invite_data = {
+            "recipients": [
+                {
+                    "email": email_destinatario
+                }
+            ],
+            "roles": roles,
+            "requireSignIn": True,
+            "sendInvitation": True,
+            "message": "Se ha compartido un archivo con usted. Puede acceder a través del enlace en este correo."
+        }
+        
+        try:
+            response = self.post(endpoint, data=invite_data)
+            
+            # La respuesta contiene información sobre los permisos creados
+            value = response.get("value", [])
+            if value:
+                permiso = value[0]
+                link_info = permiso.get("link", {})
+                web_url = link_info.get("webUrl", "")
+                
+                self.logger.info(
+                    f"[ONEDRIVE] Archivo/carpeta compartido con {email_destinatario} "
+                    f"(rol: {rol}). Invitación enviada por correo."
+                )
+                
+                return {
+                    "link": web_url,
+                    "type": "user_invitation",
+                    "email": email_destinatario,
+                    "rol": rol,
+                    "permission_id": permiso.get("id", "")
+                }
+            else:
+                # Si no hay value, intentar obtener webUrl del item directamente
+                info_item = self._obtener_info_carpeta_by_id(item_id, usuario_id)
+                web_url = info_item.get("webUrl", "")
+                
+                self.logger.warning(
+                    f"[ONEDRIVE] Compartido con {email_destinatario} pero no se obtuvo link en respuesta. "
+                    f"Usando webUrl del item."
+                )
+                
+                return {
+                    "link": web_url,
+                    "type": "user_invitation",
+                    "email": email_destinatario,
+                    "rol": rol
+                }
+                
+        except requests.HTTPError as e:
+            error_msg = str(e)
+            self.logger.error(
+                f"[ONEDRIVE] Error compartiendo con {email_destinatario}: {error_msg}"
+            )
+            raise
+
+    def _obtener_info_carpeta_by_id(self, item_id: str, usuario_id: str) -> Dict[str, Any]:
+        """
+        Obtiene información de un item en OneDrive por su ID.
+
+        Args:
+            item_id: ID del item
+            usuario_id: ID o email del usuario propietario
+
+        Returns:
+            Información del item
+        """
+        endpoint = f"/users/{usuario_id}/drive/items/{item_id}"
+        return self.get(endpoint)
+
     def obtener_enlace_compartido(self, item_id: str, usuario_id: str) -> str:
         """
         Obtiene el enlace compartido de un item (si ya está compartido).

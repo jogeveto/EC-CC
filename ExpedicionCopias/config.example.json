@@ -165,5 +165,17 @@
     "RutaLogAuditoria": "logs",
     "NombreLogAuditoria": "expedicion_copias.log",
     "NivelLog": "INFO"
+  },
+  "Notificaciones": {
+    "InicioEjecucion": {
+      "Copias": {
+        "asunto": "IMPORTANTE - RPA_Expedición de copias PARTICULARES - Inicio de ejecución del Bot",
+        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias PARTICULARES ha iniciado su ejecución.</p><p><strong>Fecha y hora de inicio:</strong> {fecha_inicio}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+      },
+      "CopiasOficiales": {
+        "asunto": "IMPORTANTE - RPA_Expedición de copias OFICIALES - Inicio de ejecución del Bot",
+        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias OFICIALES ha iniciado su ejecución.</p><p><strong>Fecha y hora de inicio:</strong> {fecha_inicio}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+      }
+    }
   }
 }
