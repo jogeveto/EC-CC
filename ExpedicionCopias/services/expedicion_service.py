@@ -212,7 +212,7 @@ class ExpedicionService:
                 self.logger.info(f"[CASO {case_id}] Email enviado exitosamente con adjunto")
             else:
                 self.logger.info(f"[CASO {case_id}] PDF grande ({tamanio_mb:.2f} MB >= 28 MB) - Subiendo a OneDrive y enviando link")
-                cuerpo_enviado = self._enviar_pdf_grande(pdf_unificado, case_id, subcategoria_id, email_destino)
+                cuerpo_enviado = self._enviar_pdf_grande(pdf_unificado, case_id, subcategoria_id, email_destino, caso)
                 self.logger.info(f"[CASO {case_id}] PDF subido a OneDrive y email con link enviado exitosamente")
             
             self.logger.info(f"[CASO {case_id}] Actualizando caso en CRM...")
@@ -325,7 +325,7 @@ class ExpedicionService:
         return plantilla["cuerpo"]
 
     def _enviar_pdf_grande(
-        self, pdf_unificado: str, case_id: str, subcategoria_id: str, email_destino: str
+        self, pdf_unificado: str, case_id: str, subcategoria_id: str, email_destino: str, caso: Dict[str, Any]
     ) -> str:
         """
         Envía PDF grande (>= 28MB) subiéndolo a OneDrive y compartiendo link.
@@ -335,6 +335,7 @@ class ExpedicionService:
             case_id: ID del caso
             subcategoria_id: ID de la subcategoría
             email_destino: Email del destinatario
+            caso: Diccionario con información del caso
 
         Returns:
             Cuerpo del email enviado con link
@@ -353,9 +354,33 @@ class ExpedicionService:
             usuario_email
         )
         item_id = info_item.get("id", "")
+        web_url = info_item.get("webUrl", "")
         
-        link_info = self.graph_client.compartir_carpeta(item_id, usuario_email)
-        link = link_info.get("link", "")
+        # Intentar compartir el archivo
+        link = ""
+        try:
+            self.logger.info(f"[CASO {case_id}] Intentando compartir archivo en OneDrive...")
+            link_info = self.graph_client.compartir_carpeta(item_id, usuario_email)
+            link = link_info.get("link", "")
+            if link:
+                self.logger.info(f"[CASO {case_id}] Archivo compartido exitosamente")
+        except Exception as e:
+            error_msg = str(e)
+            self.logger.warning(f"[CASO {case_id}] No se pudo compartir el archivo en OneDrive: {error_msg}")
+            
+            # Usar webUrl como fallback
+            if web_url:
+                link = web_url
+                self.logger.info(f"[CASO {case_id}] Usando URL directa de OneDrive como fallback: {link[:50]}...")
+            else:
+                # Si no hay webUrl, esto es un error crítico
+                raise ValueError(f"No se pudo obtener enlace del archivo en OneDrive. Error al compartir: {error_msg}")
+            
+            # Enviar email al responsable notificando el error
+            self._enviar_email_error_compartir(caso, "Copias", error_msg, link)
+        
+        if not link:
+            raise ValueError("No se obtuvo enlace del archivo en OneDrive")
         
         plantilla = self._obtener_plantilla_email("Copias", subcategoria_id, "onedrive")
         cuerpo_con_link = plantilla["cuerpo"].replace("{link}", link)
@@ -420,6 +445,66 @@ class ExpedicionService:
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=plantilla["asunto"],
+                cuerpo=cuerpo,
+                destinatarios=destinatarios
+            )
+            self.logger.info(f"[CASO {case_id}] Email enviado exitosamente al responsable: {', '.join(destinatarios)}")
+        except Exception as e:
+            self.logger.error(f"[CASO {case_id}] Error enviando email al responsable: {e}")
+
+    def _enviar_email_error_compartir(
+        self, caso: Dict[str, Any], tipo: str, error_msg: str, link_onedrive: str
+    ) -> None:
+        """
+        Envía email al responsable cuando falla el compartir archivo/carpeta en OneDrive.
+
+        Args:
+            caso: Diccionario con información del caso
+            tipo: Tipo de caso ("Copias" o "CopiasOficiales")
+            error_msg: Mensaje de error al compartir
+            link_onedrive: URL directa de OneDrive del archivo/carpeta
+        """
+        case_id = caso.get("sp_documentoid", "N/A")
+        ticket_number = caso.get("sp_ticketnumber", "N/A")
+        
+        self.logger.info(f"[CASO {case_id}] Enviando email al responsable por error al compartir - Tipo: {tipo}, Radicado: {ticket_number}")
+        
+        # Obtener emailResponsable de la configuración
+        if tipo == "Copias":
+            config_seccion = self.config.get("ReglasNegocio", {}).get("Copias", {})
+        else:  # CopiasOficiales
+            config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+        
+        email_responsable = config_seccion.get("emailResponsable", "")
+        
+        if not email_responsable:
+            self.logger.warning(f"[CASO {case_id}] emailResponsable no está configurado para {tipo}. No se enviará email.")
+            return
+        
+        # Construir mensaje HTML
+        asunto = f"Error al compartir archivo en OneDrive - Caso {ticket_number}"
+        cuerpo = f"""<html><body>
+<p>Estimado/a Responsable,</p>
+<p>Se informa que no fue posible compartir públicamente el archivo/carpeta en OneDrive para el caso {case_id} (Radicado: {ticket_number}) debido a las políticas de seguridad de la organización.</p>
+<p><strong>Información del caso:</strong></p>
+<ul>
+<li>ID Caso: {case_id}</li>
+<li>Radicado: {ticket_number}</li>
+<li>Tipo: {tipo}</li>
+</ul>
+<p><strong>Error:</strong> {error_msg}</p>
+<p><strong>Enlace de OneDrive:</strong> <a href="{link_onedrive}">{link_onedrive}</a></p>
+<p><strong>Nota:</strong> El proceso continuó normalmente y se envió el enlace directo de OneDrive al destinatario. Este enlace solo es accesible para usuarios autenticados de la organización.</p>
+<p>Saludos,<br>Equipo CCMA</p>
+</body></html>"""
+        
+        # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
+        destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+        
+        try:
+            self.graph_client.enviar_email(
+                usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
+                asunto=asunto,
                 cuerpo=cuerpo,
                 destinatarios=destinatarios
             )
@@ -687,14 +772,34 @@ class ExpedicionService:
         if not carpeta_id:
             raise ValueError("No se obtuvo ID de carpeta después de la subida")
         
-        self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id})...")
-        link_info = self.graph_client.compartir_carpeta(carpeta_id, usuario_email)
-        link = link_info.get("link", "")
+        web_url = info_carpeta.get("webUrl", "")
+        
+        # Intentar compartir la carpeta
+        link = ""
+        try:
+            self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id})...")
+            link_info = self.graph_client.compartir_carpeta(carpeta_id, usuario_email)
+            link = link_info.get("link", "")
+            if link:
+                self.logger.info(f"[ONEDRIVE] Carpeta compartida. Enlace obtenido: {link[:50]}...")
+        except Exception as e:
+            error_msg = str(e)
+            case_id = caso.get("sp_documentoid", "N/A")
+            self.logger.warning(f"[CASO {case_id}] No se pudo compartir la carpeta en OneDrive: {error_msg}")
+            
+            # Usar webUrl como fallback
+            if web_url:
+                link = web_url
+                self.logger.info(f"[CASO {case_id}] Usando URL directa de OneDrive como fallback: {link[:50]}...")
+            else:
+                # Si no hay webUrl, esto es un error crítico
+                raise ValueError(f"No se pudo obtener enlace de la carpeta en OneDrive. Error al compartir: {error_msg}")
+            
+            # Enviar email al responsable notificando el error
+            self._enviar_email_error_compartir(caso, "CopiasOficiales", error_msg, link)
         
         if not link:
-            raise ValueError("No se obtuvo enlace compartido de la carpeta")
-        
-        self.logger.info(f"[ONEDRIVE] Carpeta compartida. Enlace obtenido: {link[:50]}...")
+            raise ValueError("No se obtuvo enlace de la carpeta en OneDrive")
         
         # Construir la ruta completa de OneDrive
         nombre_carpeta = Path(carpeta_organizada).name

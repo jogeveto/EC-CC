@@ -39,14 +39,38 @@
         }
       ],
       "ExcepcionesDescarga": [
-        {
-          "tipoDocumento": "Acta",
-          "actoRegistro": "Cancelación"
-        },
-        {
-          "tipoDocumento": "Formulario",
-          "actoRegistro": ""
-        }
+        { "tipoDocumento": "CITACIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "SOLICITUD ENTREGA DE DOCUMENTOS Y LIBROS SIN COLILLA" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "DESISTIMIENTO EXPRESO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "ACEPTACIONES" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "CERTIFICADO ESPECIAL NO INMEDIATO" },
+        { "tipoDocumento": "COMUNICACIÓN CÁMARA", "actoRegistro": "" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VERIFICACIÓN IDENTIDAD" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "CONSTANCIA DE ENVÍO" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VALIDACIÓN SIPREF" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "NOTIFICACIÓN DE PLANO" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RENOVACIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "MODIFICACION RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "PROPONENTE RENOVACIÓN" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "RENOVACIÓN RUP" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CONTRATOS MULTAS SANCIONES" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Actualización de la inscripción en el Registro Único de Proponentes" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CESACIÓN DE EFECTOS RUP" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "INSCRIPCIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "INSCRIPCIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RUE CAMBIO DOMICILIO PROPONENTES (Cuando se va de la Cámara)" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Renovación de la inscripción en el Registro único de Proponentes" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "CANCELACIÓN VOLUNTARIA" },
+        { "tipoDocumento": "PROPONENTE REVOCACIÓN", "actoRegistro": "PROPONENTE REVOCACIÓN" },
+        { "tipoDocumento": "INFORMATIVO", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "NOTIFICACIÓN / RECIBO DE CAJA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "OFICIO", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "RESOLUCIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "SELLO EJECUTORIA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "LABEL", "actoRegistro": "" },
+        { "tipoDocumento": "STICKER", "actoRegistro": "" },
+        { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
       ],
       "emailResponsable": "responsable.copias@camaramedellin.com.co",
       "PlantillasEmail": {
@@ -80,14 +104,38 @@
         }
       ],
       "ExcepcionesDescarga": [
-        {
-          "tipoDocumento": "Acta",
-          "actoRegistro": "Cancelación"
-        },
-        {
-          "tipoDocumento": "Formulario",
-          "actoRegistro": ""
-        }
+        { "tipoDocumento": "CITACIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "SOLICITUD ENTREGA DE DOCUMENTOS Y LIBROS SIN COLILLA" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "DESISTIMIENTO EXPRESO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "ACEPTACIONES" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "CERTIFICADO ESPECIAL NO INMEDIATO" },
+        { "tipoDocumento": "COMUNICACIÓN CÁMARA", "actoRegistro": "" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VERIFICACIÓN IDENTIDAD" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "CONSTANCIA DE ENVÍO" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VALIDACIÓN SIPREF" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "NOTIFICACIÓN DE PLANO" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RENOVACIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "MODIFICACION RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "PROPONENTE RENOVACIÓN" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "RENOVACIÓN RUP" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CONTRATOS MULTAS SANCIONES" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Actualización de la inscripción en el Registro Único de Proponentes" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CESACIÓN DE EFECTOS RUP" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "INSCRIPCIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "INSCRIPCIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RUE CAMBIO DOMICILIO PROPONENTES (Cuando se va de la Cámara)" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Renovación de la inscripción en el Registro único de Proponentes" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "CANCELACIÓN VOLUNTARIA" },
+        { "tipoDocumento": "PROPONENTE REVOCACIÓN", "actoRegistro": "PROPONENTE REVOCACIÓN" },
+        { "tipoDocumento": "INFORMATIVO", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "NOTIFICACIÓN / RECIBO DE CAJA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "OFICIO", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "RESOLUCIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "SELLO EJECUTORIA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "LABEL", "actoRegistro": "" },
+        { "tipoDocumento": "STICKER", "actoRegistro": "" },
+        { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
       ],
       "emailResponsable": "responsable.copi oficiales@camaramedellin.com.co",
       "PlantillasEmail": {
