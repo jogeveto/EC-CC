@@ -185,12 +185,17 @@ try:
 
         try:
             # Cargar configuración
+            logger.info(f"Cargando configuración desde: {config_param}")
             config = load_config_from_param(config_param) if config_param else {}
+            logger.info("Configuración cargada exitosamente")
 
             # Inicializar logger del módulo
+            logger.info("Inicializando logger del módulo...")
             _inicializar_logger_modulo(config)
+            logger.info("Logger del módulo inicializado")
 
             # Obtener variables de Rocketbot
+            logger.info("Obteniendo variables de Rocketbot...")
             graph_client_secret = GetVar("graph_client_secret")  # type: ignore[name-defined]
             dynamics_client_secret = GetVar("dynamics_client_secret")  # type: ignore[name-defined]
             docuware_password = GetVar("docuware_password")  # type: ignore[name-defined]
@@ -202,6 +207,8 @@ try:
                 raise ValueError("Variable de Rocketbot 'dynamics_client_secret' no está configurada")
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
+
+            logger.info("Variables de Rocketbot obtenidas exitosamente")
 
             # Agregar secrets a la configuración (sin modificar estructura original del JSON)
             # Los secrets se obtienen de variables de Rocketbot y se agregan al config dict
@@ -218,11 +225,38 @@ try:
                 config["Database"]["password"] = database_password
 
             # Import ExpedicionService with full typing support
+            logger.info("Importando ExpedicionService...")
             ExpedicionServiceClass = _import_expedicion_service(expedicion_module_path)
+            logger.info("Creando instancia de ExpedicionService...")
             service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
+            logger.info("Ejecutando procesar_particulares()...")
             resultado = service.procesar_particulares()
 
-            logger.info(f"[FIN] Procesamiento completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
+            casos_procesados = resultado.get('casos_procesados', 0)
+            casos_error = resultado.get('casos_error', 0)
+            reporte_path = resultado.get('reporte_path', 'N/A')
+            
+            logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores")
+            logger.info(f"[FIN] Reporte generado en: {reporte_path}")
+            
+            # Obtener IDs de casos procesados y con error para el resumen
+            casos_procesados_ids = []
+            casos_error_ids = []
+            if hasattr(service, 'casos_procesados'):
+                for item in service.casos_procesados:
+                    caso = item.get('caso', {})
+                    case_id = caso.get('sp_documentoid', 'N/A')
+                    casos_procesados_ids.append(case_id)
+            if hasattr(service, 'casos_error'):
+                for item in service.casos_error:
+                    caso = item.get('caso', {})
+                    case_id = caso.get('sp_documentoid', 'N/A')
+                    casos_error_ids.append(case_id)
+            
+            if casos_procesados_ids:
+                logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
+            if casos_error_ids:
+                logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
 
             if result_var:
                 SetVar(result_var, resultado)
@@ -256,12 +290,17 @@ try:
 
         try:
             # Cargar configuración
+            logger.info(f"Cargando configuración desde: {config_param}")
             config = load_config_from_param(config_param) if config_param else {}
+            logger.info("Configuración cargada exitosamente")
 
             # Inicializar logger del módulo
+            logger.info("Inicializando logger del módulo...")
             _inicializar_logger_modulo(config)
+            logger.info("Logger del módulo inicializado")
 
             # Obtener variables de Rocketbot
+            logger.info("Obteniendo variables de Rocketbot...")
             graph_client_secret = GetVar("graph_client_secret")  # type: ignore[name-defined]
             dynamics_client_secret = GetVar("dynamics_client_secret")  # type: ignore[name-defined]
             docuware_password = GetVar("docuware_password")  # type: ignore[name-defined]
@@ -273,6 +312,8 @@ try:
                 raise ValueError("Variable de Rocketbot 'dynamics_client_secret' no está configurada")
             if not docuware_password:
                 raise ValueError("Variable de Rocketbot 'docuware_password' no está configurada")
+
+            logger.info("Variables de Rocketbot obtenidas exitosamente")
 
             # Agregar secrets a la configuración (sin modificar estructura original del JSON)
             # Los secrets se obtienen de variables de Rocketbot y se agregan al config dict
@@ -289,11 +330,38 @@ try:
                 config["Database"]["password"] = database_password
 
             # Import ExpedicionService with full typing support
+            logger.info("Importando ExpedicionService...")
             ExpedicionServiceClass = _import_expedicion_service(expedicion_module_path)
+            logger.info("Creando instancia de ExpedicionService...")
             service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
+            logger.info("Ejecutando procesar_oficiales()...")
             resultado = service.procesar_oficiales()
 
-            logger.info(f"[FIN] Procesamiento completado: {resultado.get('casos_procesados', 0)} casos procesados, {resultado.get('casos_error', 0)} errores")
+            casos_procesados = resultado.get('casos_procesados', 0)
+            casos_error = resultado.get('casos_error', 0)
+            reporte_path = resultado.get('reporte_path', 'N/A')
+            
+            logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores")
+            logger.info(f"[FIN] Reporte generado en: {reporte_path}")
+            
+            # Obtener IDs de casos procesados y con error para el resumen
+            casos_procesados_ids = []
+            casos_error_ids = []
+            if hasattr(service, 'casos_procesados'):
+                for item in service.casos_procesados:
+                    caso = item.get('caso', {})
+                    case_id = caso.get('sp_documentoid', 'N/A')
+                    casos_procesados_ids.append(case_id)
+            if hasattr(service, 'casos_error'):
+                for item in service.casos_error:
+                    caso = item.get('caso', {})
+                    case_id = caso.get('sp_documentoid', 'N/A')
+                    casos_error_ids.append(case_id)
+            
+            if casos_procesados_ids:
+                logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
+            if casos_error_ids:
+                logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
 
             if result_var:
                 SetVar(result_var, resultado)

@@ -94,6 +94,8 @@ class ExpedicionService:
         Returns:
             Diccionario con resultados del proceso
         """
+        self.logger.info("[INICIO] Procesamiento de copias particulares")
+        
         # Cargar configuración específica de Copias
         copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})
         
@@ -104,15 +106,21 @@ class ExpedicionService:
         self.excepciones_validator = ExcepcionesValidator(excepciones)
         self.docuware_client.rules_validator = self.excepciones_validator
         
+        self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
+        
         if not self.time_validator.debe_ejecutar():
             raise ValueError("Fuera de franja horaria o día no hábil")
         
+        self.logger.info("Autenticando con DocuWare...")
         self.docuware_client.autenticar()
+        self.logger.info("Autenticación con DocuWare exitosa")
         
         subcategorias = copias_config.get("Subcategorias", [])
         especificaciones = copias_config.get("Especificaciones", [])
         
         filtro = self._construir_filtro_crm(subcategorias, especificaciones)
+        self.logger.info(f"Filtro CRM construido: {filtro}")
+        
         casos = self.crm_client.consultar_casos(filtro)
         
         self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
@@ -122,16 +130,24 @@ class ExpedicionService:
                 self.logger.warning("Fuera de franja horaria, deteniendo procesamiento")
                 break
             
+            case_id = caso.get('sp_documentoid', 'N/A')
+            ticket_number = caso.get('sp_ticketnumber', 'N/A')
+            matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+            matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+            self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+            
             try:
                 self._procesar_caso_particular(caso)
                 self.casos_procesados.append({"caso": caso, "estado": "exitoso"})
+                self.logger.info(f"Caso {case_id} procesado exitosamente")
             except Exception as e:
                 error_msg = str(e)
-                self.logger.error(f"Error procesando caso {caso.get('sp_documentoid', 'N/A')}: {error_msg}")
+                self.logger.error(f"Error procesando caso {case_id}: {error_msg}")
                 self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
                 self._manejar_error_caso(caso, error_msg)
         
         reporte_path = self._generar_reporte_excel()
+        self.logger.info(f"Reporte generado en: {reporte_path}")
         
         return {
             "casos_procesados": len(self.casos_procesados),
@@ -145,39 +161,56 @@ class ExpedicionService:
         matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         
+        self.logger.info(f"[CASO {case_id}] Iniciando procesamiento - Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+        
         if not matriculas:
             raise ValueError("No se encontraron matrículas en el caso")
         
         ruta_temporal = tempfile.mkdtemp()
+        self.logger.info(f"[CASO {case_id}] Ruta temporal creada: {ruta_temporal}")
         
         try:
             documentos_descargados = self._procesar_documentos_matricula(matriculas, ruta_temporal)
             
+            self.logger.info(f"[CASO {case_id}] Documentos descargados: {len(documentos_descargados)}")
+            
             if not documentos_descargados:
+                self.logger.error(f"[CASO {case_id}] No se descargaron documentos. Posibles causas: no se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)} o todas las descargas fallaron.")
                 raise ValueError("No se descargaron documentos")
             
             pdf_unificado = os.path.join(ruta_temporal, f"unificado_{case_id}.pdf")
+            self.logger.info(f"[CASO {case_id}] Unificando {len(documentos_descargados)} documentos en PDF: {pdf_unificado}")
             self.pdf_merger.merge_pdfs(documentos_descargados, pdf_unificado)
             
             tamanio_mb = os.path.getsize(pdf_unificado) / (1024 * 1024)
+            self.logger.info(f"[CASO {case_id}] PDF unificado creado - Tamaño: {tamanio_mb:.2f} MB")
+            
             subcategoria_id = caso.get("_sp_subcategoriapqrs_value", "")
             email_destino = self._obtener_email_caso(caso)
+            self.logger.info(f"[CASO {case_id}] Email destino: {email_destino}, Subcategoría: {subcategoria_id}")
             
             if tamanio_mb < 28:
+                self.logger.info(f"[CASO {case_id}] PDF pequeño ({tamanio_mb:.2f} MB < 28 MB) - Enviando como adjunto por email")
                 cuerpo_enviado = self._enviar_pdf_pequeno(pdf_unificado, subcategoria_id, email_destino)
+                self.logger.info(f"[CASO {case_id}] Email enviado exitosamente con adjunto")
             else:
+                self.logger.info(f"[CASO {case_id}] PDF grande ({tamanio_mb:.2f} MB >= 28 MB) - Subiendo a OneDrive y enviando link")
                 cuerpo_enviado = self._enviar_pdf_grande(pdf_unificado, case_id, subcategoria_id, email_destino)
+                self.logger.info(f"[CASO {case_id}] PDF subido a OneDrive y email con link enviado exitosamente")
             
+            self.logger.info(f"[CASO {case_id}] Actualizando caso en CRM...")
             self.crm_client.actualizar_caso(case_id, {
                 "sp_descripciondelasolucion": cuerpo_enviado,
                 "sp_resolvercaso": True
             })
+            self.logger.info(f"[CASO {case_id}] Caso actualizado en CRM exitosamente")
             
             self._auditar_caso(case_id, "exitoso", "Caso procesado correctamente")
             
         finally:
             import shutil
             if os.path.exists(ruta_temporal):
+                self.logger.info(f"[CASO {case_id}] Limpiando ruta temporal: {ruta_temporal}")
                 shutil.rmtree(ruta_temporal, ignore_errors=True)
 
     def _procesar_documentos_matricula(
@@ -194,20 +227,43 @@ class ExpedicionService:
             Lista de rutas de documentos descargados
         """
         documentos_descargados = []
+        total_matriculas = len(matriculas)
         
-        for matricula in matriculas:
+        self.logger.info(f"[DESCARGAS] Iniciando procesamiento de {total_matriculas} matrícula(s)")
+        
+        for idx, matricula in enumerate(matriculas, 1):
+            self.logger.info(f"[DESCARGAS] Procesando matrícula {idx}/{total_matriculas}: {matricula}")
+            
             documentos = self.docuware_client.buscar_documentos(matricula)
+            total_encontrados = len(documentos)
+            
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: {total_encontrados} documento(s) encontrado(s) después de aplicar filtros")
+            
+            if total_encontrados == 0:
+                self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: No se encontraron documentos en DocuWare o todos fueron filtrados por excepciones")
+            
+            descargas_exitosas = 0
+            descargas_fallidas = 0
             
             for doc in documentos:
                 doc_id = doc.get("Id", "")
                 if not doc_id:
+                    self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: Documento sin ID, omitiendo")
                     continue
                 
                 try:
+                    self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Descargando documento ID {doc_id}")
                     ruta_descarga = self.docuware_client.descargar_documento(doc_id, doc, ruta_temporal)
                     documentos_descargados.append(ruta_descarga)
+                    descargas_exitosas += 1
+                    self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Documento {doc_id} descargado exitosamente en {ruta_descarga}")
                 except Exception as e:
-                    self.logger.warning(f"Error descargando documento {doc_id}: {e}")
+                    descargas_fallidas += 1
+                    self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: Error descargando documento {doc_id}: {e}")
+            
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Resumen - Encontrados: {total_encontrados}, Exitosos: {descargas_exitosas}, Fallidos: {descargas_fallidas}")
+        
+        self.logger.info(f"[DESCARGAS] Resumen general - Total matrículas: {total_matriculas}, Total documentos descargados: {len(documentos_descargados)}")
         
         return documentos_descargados
 
@@ -302,6 +358,8 @@ class ExpedicionService:
         Returns:
             Diccionario con resultados del proceso
         """
+        self.logger.info("[INICIO] Procesamiento de copias oficiales")
+        
         # Cargar configuración específica de CopiasOficiales
         copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
         
@@ -312,15 +370,21 @@ class ExpedicionService:
         self.excepciones_validator = ExcepcionesValidator(excepciones)
         self.docuware_client.rules_validator = self.excepciones_validator
         
+        self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
+        
         if not self.time_validator.debe_ejecutar():
             raise ValueError("Fuera de franja horaria o día no hábil")
         
+        self.logger.info("Autenticando con DocuWare...")
         self.docuware_client.autenticar()
+        self.logger.info("Autenticación con DocuWare exitosa")
         
         subcategorias = copias_oficiales_config.get("Subcategorias", [])
         especificaciones = copias_oficiales_config.get("Especificaciones", [])
         
         filtro = self._construir_filtro_crm(subcategorias, especificaciones)
+        self.logger.info(f"Filtro CRM construido: {filtro}")
+        
         casos = self.crm_client.consultar_casos(filtro)
         
         self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
@@ -330,16 +394,24 @@ class ExpedicionService:
                 self.logger.warning("Fuera de franja horaria, deteniendo procesamiento")
                 break
             
+            case_id = caso.get('sp_documentoid', 'N/A')
+            ticket_number = caso.get('sp_ticketnumber', 'N/A')
+            matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+            matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+            self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+            
             try:
                 self._procesar_caso_oficial(caso)
                 self.casos_procesados.append({"caso": caso, "estado": "exitoso"})
+                self.logger.info(f"Caso {case_id} procesado exitosamente")
             except Exception as e:
                 error_msg = str(e)
-                self.logger.error(f"Error procesando caso {caso.get('sp_documentoid', 'N/A')}: {error_msg}")
+                self.logger.error(f"Error procesando caso {case_id}: {error_msg}")
                 self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
                 self._manejar_error_caso_oficial(caso, error_msg)
         
         reporte_path = self._generar_reporte_excel()
+        self.logger.info(f"Reporte generado en: {reporte_path}")
         
         return {
             "casos_procesados": len(self.casos_procesados),
@@ -354,17 +426,24 @@ class ExpedicionService:
         matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         
+        self.logger.info(f"[CASO {case_id}] Iniciando procesamiento - Radicado: {radicado}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+        
         if not matriculas:
             raise ValueError("No se encontraron matrículas en el caso")
         
         ruta_temporal = tempfile.mkdtemp()
+        self.logger.info(f"[CASO {case_id}] Ruta temporal creada: {ruta_temporal}")
         
         try:
             documentos_info = self._procesar_documentos_oficiales(matriculas, ruta_temporal)
             
+            self.logger.info(f"[CASO {case_id}] Documentos descargados: {len(documentos_info)}")
+            
             if not documentos_info:
+                self.logger.error(f"[CASO {case_id}] No se descargaron documentos. Posibles causas: no se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)} o todas las descargas fallaron.")
                 raise ValueError("No se descargaron documentos")
             
+            self.logger.info(f"[CASO {case_id}] Organizando archivos por matrícula...")
             estructura = self.file_organizer.organizar_archivos(
                 archivos=documentos_info,
                 radicado=radicado,
@@ -373,18 +452,25 @@ class ExpedicionService:
             )
             
             carpeta_organizada = estructura["ruta_base"]
-            cuerpo_con_link = self._subir_y_enviar_carpeta_oficial(carpeta_organizada, caso)
+            self.logger.info(f"[CASO {case_id}] Archivos organizados en: {carpeta_organizada}")
             
+            self.logger.info(f"[CASO {case_id}] Subiendo carpeta a OneDrive y enviando email...")
+            cuerpo_con_link = self._subir_y_enviar_carpeta_oficial(carpeta_organizada, caso)
+            self.logger.info(f"[CASO {case_id}] Carpeta subida a OneDrive y email con link enviado exitosamente")
+            
+            self.logger.info(f"[CASO {case_id}] Actualizando caso en CRM...")
             self.crm_client.actualizar_caso(case_id, {
                 "sp_descripciondelasolucion": cuerpo_con_link,
                 "sp_resolvercaso": True
             })
+            self.logger.info(f"[CASO {case_id}] Caso actualizado en CRM exitosamente")
             
             self._auditar_caso(case_id, "exitoso", "Caso procesado correctamente")
             
         finally:
             import shutil
             if os.path.exists(ruta_temporal):
+                self.logger.info(f"[CASO {case_id}] Limpiando ruta temporal: {ruta_temporal}")
                 shutil.rmtree(ruta_temporal, ignore_errors=True)
 
     def _procesar_documentos_oficiales(
@@ -401,16 +487,32 @@ class ExpedicionService:
             Lista de diccionarios con información de documentos descargados
         """
         documentos_info = []
+        total_matriculas = len(matriculas)
         
-        for matricula in matriculas:
+        self.logger.info(f"[DESCARGAS] Iniciando procesamiento de {total_matriculas} matrícula(s)")
+        
+        for idx, matricula in enumerate(matriculas, 1):
+            self.logger.info(f"[DESCARGAS] Procesando matrícula {idx}/{total_matriculas}: {matricula}")
+            
             documentos = self.docuware_client.buscar_documentos(matricula)
+            total_encontrados = len(documentos)
+            
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: {total_encontrados} documento(s) encontrado(s) después de aplicar filtros")
+            
+            if total_encontrados == 0:
+                self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: No se encontraron documentos en DocuWare o todos fueron filtrados por excepciones")
+            
+            descargas_exitosas = 0
+            descargas_fallidas = 0
             
             for doc in documentos:
                 doc_id = doc.get("Id", "")
                 if not doc_id:
+                    self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: Documento sin ID, omitiendo")
                     continue
                 
                 try:
+                    self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Descargando documento ID {doc_id}")
                     ruta_descarga = self.docuware_client.descargar_documento(doc_id, doc, ruta_temporal)
                     tipo_doc = self._obtener_tipo_documento(doc)
                     documentos_info.append({
@@ -418,8 +520,15 @@ class ExpedicionService:
                         "tipoDocumento": tipo_doc,
                         "documento": doc
                     })
+                    descargas_exitosas += 1
+                    self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Documento {doc_id} (tipo: {tipo_doc}) descargado exitosamente en {ruta_descarga}")
                 except Exception as e:
-                    self.logger.warning(f"Error descargando documento {doc_id}: {e}")
+                    descargas_fallidas += 1
+                    self.logger.warning(f"[DESCARGAS] Matrícula {matricula}: Error descargando documento {doc_id}: {e}")
+            
+            self.logger.info(f"[DESCARGAS] Matrícula {matricula}: Resumen - Encontrados: {total_encontrados}, Exitosos: {descargas_exitosas}, Fallidos: {descargas_fallidas}")
+        
+        self.logger.info(f"[DESCARGAS] Resumen general - Total matrículas: {total_matriculas}, Total documentos descargados: {len(documentos_info)}")
         
         return documentos_info
 

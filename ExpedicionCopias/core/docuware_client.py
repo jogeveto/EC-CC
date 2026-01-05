@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
+from shared.utils.logger import get_logger
 
 
 class DocuWareClient:
@@ -21,6 +22,7 @@ class DocuWareClient:
         """
         self.config = config.get("DocuWare", {})
         self.rules_validator = rules_validator
+        self.logger = get_logger("DocuWareClient")
         self.verify_ssl = self.config.get("verifySSL", True)
         
         if not self.verify_ssl:
@@ -103,9 +105,15 @@ class DocuWareClient:
         Raises:
             Exception: Si la autenticación falla
         """
+        self.logger.info("[AUTH] Iniciando autenticación con DocuWare")
+        
         token_endpoint = self.config.get('tokenEndpoint')
         if not token_endpoint:
+            self.logger.info("[AUTH] Token endpoint no configurado, descubriendo automáticamente...")
             token_endpoint = self._discover_token_endpoint()
+            self.logger.info(f"[AUTH] Token endpoint descubierto: {token_endpoint}")
+        else:
+            self.logger.info(f"[AUTH] Usando token endpoint configurado: {token_endpoint}")
         
         username = self.config.get('username', '').strip()
         password = self.config.get('password', '').strip()
@@ -114,6 +122,8 @@ class DocuWareClient:
             raise ValueError("Username de DocuWare no está configurado en la sección DocuWare")
         if not password:
             raise ValueError("Password de DocuWare no está configurado. Verifica que la variable de Rocketbot 'docuware_password' esté configurada")
+        
+        self.logger.info(f"[AUTH] Autenticando usuario: {username}")
         
         data = {
             "grant_type": "password",
@@ -142,13 +152,21 @@ class DocuWareClient:
         if not self.access_token:
             raise ValueError("No se recibió access_token en la respuesta")
         
+        self.logger.info("[AUTH] Token de acceso obtenido exitosamente")
+        self.logger.info("[AUTH] Inicializando IDs de organización, file cabinet y search dialog...")
         self._inicializar_ids()
+        self.logger.info(f"[AUTH] IDs inicializados - Organization: {self.organization_id or 'N/A'}, File Cabinet: {self.file_cabinet_id or 'N/A'}, Search Dialog: {self.search_dialog_id or 'N/A'}")
+        self.logger.info("[AUTH] Autenticación completada exitosamente")
+        
         return True
 
     def _inicializar_ids(self) -> None:
         """Inicializa organization_id, file_cabinet_id y search_dialog_id."""
+        self.logger.info("[AUTH] Inicializando organization_id...")
         self._inicializar_organization_id()
+        self.logger.info("[AUTH] Inicializando file_cabinet_id...")
         self._inicializar_file_cabinet_id()
+        self.logger.info("[AUTH] Inicializando search_dialog_id...")
         self._inicializar_search_dialog_id()
 
     def _inicializar_organization_id(self) -> None:
@@ -233,6 +251,8 @@ class DocuWareClient:
         Returns:
             Lista de documentos encontrados (filtrados por reglas de excepciones)
         """
+        self.logger.info(f"[BUSCAR] Iniciando búsqueda de documentos para matrícula: {matricula}")
+        
         if not self.file_cabinet_id or not self.search_dialog_id:
             raise ValueError("No se ha inicializado file_cabinet_id o search_dialog_id")
         
@@ -265,6 +285,7 @@ class DocuWareClient:
         }
         
         all_documents = []
+        all_items_before_filter = []
         page = 1
         max_pages = 100
         
@@ -282,6 +303,8 @@ class DocuWareClient:
             if not items:
                 break
             
+            all_items_before_filter.extend(items)
+            
             for item in items:
                 if self.rules_validator.debe_descargar(item):
                     all_documents.append(item)
@@ -292,6 +315,19 @@ class DocuWareClient:
             
             body["Start"] = len(all_documents)
             page += 1
+        
+        total_encontrados = len(all_items_before_filter)
+        total_despues_filtro = len(all_documents)
+        filtrados = total_encontrados - total_despues_filtro
+        
+        self.logger.info(f"[BUSCAR] Matrícula {matricula}: {total_encontrados} documento(s) encontrado(s) en DocuWare")
+        if filtrados > 0:
+            self.logger.info(f"[BUSCAR] Matrícula {matricula}: {filtrados} documento(s) filtrado(s) por excepciones, {total_despues_filtro} documento(s) disponibles para descarga")
+        else:
+            self.logger.info(f"[BUSCAR] Matrícula {matricula}: {total_despues_filtro} documento(s) disponible(s) para descarga")
+        
+        if total_despues_filtro == 0:
+            self.logger.warning(f"[BUSCAR] Matrícula {matricula}: No hay documentos disponibles para descarga")
         
         return all_documents
 
@@ -310,6 +346,8 @@ class DocuWareClient:
         Raises:
             Exception: Si la descarga falla
         """
+        self.logger.info(f"[DESCARGAR] Iniciando descarga de documento ID: {document_id} a ruta: {ruta}")
+        
         server_url = self.config['serverUrl']
         platform = self.config['platform']
         
@@ -324,6 +362,7 @@ class DocuWareClient:
         )
         
         if response.status_code == 500:
+            self.logger.warning(f"[DESCARGAR] Documento {document_id}: Error 500 en descarga directa, usando método alternativo por secciones")
             return self._descargar_por_secciones(document_id, documento, ruta)
         
         response.raise_for_status()
@@ -333,14 +372,21 @@ class DocuWareClient:
         file_path = Path(ruta) / filename
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Guardando en {file_path} (tipo: {content_type})")
+        
         with open(file_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
+        
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Descarga completada exitosamente - Archivo: {file_path}, Tamaño: {file_size_mb:.2f} MB")
         
         return str(file_path)
 
     def _descargar_por_secciones(self, document_id: str, documento: Dict[str, Any], ruta: str) -> str:
         """Método alternativo de descarga usando secciones."""
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Usando método alternativo de descarga por secciones")
+        
         server_url = self.config['serverUrl']
         platform = self.config['platform']
         
@@ -358,6 +404,8 @@ class DocuWareClient:
         section_id = section.get('Id')
         content_type = section.get('ContentType', 'application/pdf')
         
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Sección encontrada - ID: {section_id}, Tipo: {content_type}")
+        
         url_data = f"{server_url}/{platform}/FileCabinets/{self.file_cabinet_id}/Sections/{section_id}/Data"
         response_data = requests.get(
             url_data, 
@@ -371,9 +419,14 @@ class DocuWareClient:
         file_path = Path(ruta) / filename
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Guardando en {file_path} (método: secciones)")
+        
         with open(file_path, 'wb') as f:
             for chunk in response_data.iter_content(chunk_size=8192):
                 f.write(chunk)
+        
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Descarga por secciones completada - Archivo: {file_path}, Tamaño: {file_size_mb:.2f} MB")
         
         return str(file_path)
 
