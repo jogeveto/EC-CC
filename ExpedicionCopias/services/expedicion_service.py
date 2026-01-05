@@ -672,26 +672,42 @@ class ExpedicionService:
         carpeta_base = self.config.get("OneDrive", {}).get("carpetaBase", "/ExpedicionCopias")
         usuario_email = self.config.get("GraphAPI", {}).get("user_email", "")
         
+        carpeta_destino = f"{carpeta_base}/Oficiales"
+        self.logger.info(f"[ONEDRIVE] Iniciando subida de carpeta organizada: {carpeta_organizada} -> {carpeta_destino}")
+        
         info_carpeta = self.graph_client.subir_carpeta_completa(
             ruta_carpeta_local=carpeta_organizada,
-            carpeta_destino=f"{carpeta_base}/Oficiales",
+            carpeta_destino=carpeta_destino,
             usuario_id=usuario_email
         )
         
+        self.logger.info(f"[ONEDRIVE] Carpeta subida exitosamente. ID: {info_carpeta.get('id', 'N/A')}")
+        
         carpeta_id = info_carpeta.get("id", "")
+        if not carpeta_id:
+            raise ValueError("No se obtuvo ID de carpeta después de la subida")
+        
+        self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id})...")
         link_info = self.graph_client.compartir_carpeta(carpeta_id, usuario_email)
         link = link_info.get("link", "")
+        
+        if not link:
+            raise ValueError("No se obtuvo enlace compartido de la carpeta")
+        
+        self.logger.info(f"[ONEDRIVE] Carpeta compartida. Enlace obtenido: {link[:50]}...")
         
         plantilla = self._obtener_plantilla_email("CopiasOficiales")
         cuerpo_con_link = plantilla["cuerpo"].replace("{link}", link)
         email_creador = self._obtener_email_creador(caso)
         
+        self.logger.info(f"[ONEDRIVE] Enviando email a: {email_creador}")
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
             asunto=plantilla["asunto"],
             cuerpo=cuerpo_con_link,
             destinatarios=self._obtener_destinatarios_por_modo([email_creador])
         )
+        self.logger.info(f"[ONEDRIVE] Email enviado exitosamente")
         
         return cuerpo_con_link
 

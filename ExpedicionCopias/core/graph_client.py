@@ -1,9 +1,11 @@
 """Cliente HTTP base para Microsoft Graph API con manejo de errores."""
 import requests
+import time
 from pathlib import Path
 from typing import Any, List, Dict, Optional
 
 from ExpedicionCopias.core.auth import AzureAuthenticator
+from shared.utils.logger import get_logger
 
 
 class GraphClient:
@@ -20,6 +22,8 @@ class GraphClient:
         """
         self.authenticator = authenticator
         self._token: str | None = None
+        self.logger = get_logger("GraphClient")
+        self._carpetas_creadas: set[str] = set()  # Cache de carpetas ya creadas
 
     def _get_token(self) -> str:
         """
@@ -136,11 +140,18 @@ class GraphClient:
         headers = self._get_headers()
         headers["Content-Type"] = content_type
 
+        # Timeout dinámico basado en tamaño: 1 min por MB, mínimo 60s, máximo 300s
+        if data:
+            tamaño_mb = len(data) / (1024 * 1024)
+            timeout = max(60, min(300, int(tamaño_mb * 60)))
+        else:
+            timeout = 60
+
         response = requests.put(
             url,
             headers=headers,
             data=data,
-            timeout=60,
+            timeout=timeout,
         )
         response.raise_for_status()
 
@@ -228,14 +239,41 @@ class GraphClient:
             requests.HTTPError: Si la subida falla
         """
         ruta_local_path = Path(ruta_local)
+        
+        # Validación: verificar que el archivo existe
+        if not ruta_local_path.exists():
+            raise FileNotFoundError(f"El archivo no existe: {ruta_local}")
+        
+        if not ruta_local_path.is_file():
+            raise ValueError(f"La ruta no es un archivo: {ruta_local}")
+        
         nombre_archivo = ruta_local_path.name
+        tamaño_archivo = ruta_local_path.stat().st_size
+        tamaño_mb = tamaño_archivo / (1024 * 1024)
         
-        with open(ruta_local_path, "rb") as f:
-            contenido = f.read()
+        # Validación: verificar que el archivo no está vacío
+        if tamaño_archivo == 0:
+            raise ValueError(f"El archivo está vacío: {ruta_local}")
         
-        endpoint = f"/users/{usuario_id}/drive/root:{carpeta_destino}/{nombre_archivo}:/content"
+        inicio_tiempo = time.time()
+        self.logger.info(f"[ONEDRIVE] Subiendo archivo: {nombre_archivo} ({tamaño_mb:.2f} MB) a {carpeta_destino}")
         
-        return self.put(endpoint, data=contenido, content_type="application/pdf") or {}
+        try:
+            with open(ruta_local_path, "rb") as f:
+                contenido = f.read()
+            
+            endpoint = f"/users/{usuario_id}/drive/root:{carpeta_destino}/{nombre_archivo}:/content"
+            
+            resultado = self.put(endpoint, data=contenido, content_type="application/pdf") or {}
+            
+            tiempo_transcurrido = time.time() - inicio_tiempo
+            self.logger.info(f"[ONEDRIVE] Archivo {nombre_archivo} subido exitosamente en {tiempo_transcurrido:.2f}s")
+            
+            return resultado
+        except Exception as e:
+            tiempo_transcurrido = time.time() - inicio_tiempo
+            self.logger.error(f"[ONEDRIVE] Error subiendo archivo {nombre_archivo} después de {tiempo_transcurrido:.2f}s: {e}")
+            raise
 
     def subir_carpeta_completa(
         self, ruta_carpeta_local: str, carpeta_destino: str, usuario_id: str
@@ -261,38 +299,94 @@ class GraphClient:
         carpeta_destino_clean = carpeta_destino.rstrip("/")
         carpeta_destino_path = f"{carpeta_destino_clean}/{carpeta_local.name}"
         
+        # Obtener lista de archivos antes de empezar
+        archivos = [item for item in carpeta_local.rglob("*") if item.is_file()]
+        total_archivos = len(archivos)
+        
+        # Calcular tamaño total
+        tamaño_total = sum(f.stat().st_size for f in archivos)
+        tamaño_total_mb = tamaño_total / (1024 * 1024)
+        
+        self.logger.info(f"[ONEDRIVE] Iniciando subida de carpeta: {ruta_carpeta_local} -> {carpeta_destino_path}")
+        self.logger.info(f"[ONEDRIVE] Total de archivos a subir: {total_archivos}")
+        self.logger.info(f"[ONEDRIVE] Tamaño total: {tamaño_total_mb:.2f} MB")
+        
+        # Crear carpeta destino principal
         self._crear_carpeta_onedrive(carpeta_destino_path, usuario_id)
         
-        for item in carpeta_local.rglob("*"):
-            if item.is_file():
+        # Contadores para resumen
+        archivos_exitosos = 0
+        archivos_fallidos = 0
+        archivos_fallidos_detalle = []
+        
+        inicio_tiempo_total = time.time()
+        
+        # Subir cada archivo
+        for idx, item in enumerate(archivos, 1):
+            try:
                 ruta_relativa = item.relative_to(carpeta_local)
                 carpeta_padre = str(ruta_relativa.parent).replace("\\", "/")
                 carpeta_completa = f"{carpeta_destino_path}/{carpeta_padre}" if carpeta_padre != "." else carpeta_destino_path
                 
+                # Crear subcarpetas si es necesario
                 if carpeta_padre != ".":
                     self._crear_carpeta_onedrive(carpeta_completa, usuario_id)
                 
+                self.logger.info(f"[ONEDRIVE] Subiendo archivo {idx}/{total_archivos}: {item.name}")
                 self.subir_a_onedrive(str(item), carpeta_completa, usuario_id)
+                archivos_exitosos += 1
+                
+            except Exception as e:
+                archivos_fallidos += 1
+                nombre_archivo = item.name
+                archivos_fallidos_detalle.append(f"{nombre_archivo}: {str(e)}")
+                self.logger.error(f"[ONEDRIVE] Error subiendo archivo {idx}/{total_archivos} ({nombre_archivo}): {e}")
+                # Continuar con el siguiente archivo en lugar de detener todo el proceso
+        
+        tiempo_total = time.time() - inicio_tiempo_total
+        
+        # Resumen final
+        self.logger.info(f"[ONEDRIVE] Resumen de subida: {total_archivos} archivos procesados - {archivos_exitosos} exitosos, {archivos_fallidos} fallidos")
+        self.logger.info(f"[ONEDRIVE] Tiempo total de subida: {tiempo_total:.2f}s")
+        
+        if archivos_fallidos > 0:
+            self.logger.warning(f"[ONEDRIVE] Archivos fallidos: {', '.join(archivos_fallidos_detalle)}")
+        
+        # Si todos los archivos fallaron, lanzar excepción
+        if archivos_exitosos == 0 and total_archivos > 0:
+            raise RuntimeError(f"Todos los archivos fallaron al subir. Errores: {', '.join(archivos_fallidos_detalle)}")
         
         info_carpeta = self._obtener_info_carpeta(carpeta_destino_path, usuario_id)
         return info_carpeta
 
     def _crear_carpeta_onedrive(self, ruta_carpeta: str, usuario_id: str) -> Dict[str, Any]:
         """Crea una carpeta en OneDrive si no existe."""
+        # Verificar cache primero
+        if ruta_carpeta in self._carpetas_creadas:
+            return {}
+        
         partes = ruta_carpeta.strip("/").split("/")
         carpeta_actual = ""
         
         for parte in partes:
             carpeta_siguiente = f"{carpeta_actual}/{parte}" if carpeta_actual else f"/{parte}"
             
+            # Verificar si la carpeta ya existe en cache
+            if carpeta_siguiente in self._carpetas_creadas:
+                carpeta_actual = carpeta_siguiente
+                continue
+            
             try:
                 endpoint = f"/users/{usuario_id}/drive/root:{carpeta_siguiente}"
                 self.get(endpoint)
+                # Carpeta existe, agregar a cache
+                self._carpetas_creadas.add(carpeta_siguiente)
             except requests.HTTPError:
+                # Carpeta no existe, crearla
                 if carpeta_actual:
-                    # Subcarpeta: usar formato root:{ruta}/children
+                    # Subcarpeta: usar formato root:{ruta}:/children (dos puntos antes de children)
                     carpeta_padre = carpeta_actual.lstrip("/")
-                    endpoint = f"/users/{usuario_id}/drive/root:/{carpeta_padre}/children"
+                    endpoint = f"/users/{usuario_id}/drive/root:/{carpeta_padre}:/children"
                 else:
                     # Raíz: usar formato root/children
                     endpoint = f"/users/{usuario_id}/drive/root/children"
@@ -302,6 +396,9 @@ class GraphClient:
                     "folder": {},
                     "@microsoft.graph.conflictBehavior": "rename"
                 })
+                self.logger.info(f"[ONEDRIVE] Carpeta creada: {carpeta_siguiente}")
+                # Agregar a cache
+                self._carpetas_creadas.add(carpeta_siguiente)
             
             carpeta_actual = carpeta_siguiente
         
