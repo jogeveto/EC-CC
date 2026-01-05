@@ -723,6 +723,7 @@ class ExpedicionService:
                     documentos_info.append({
                         "ruta": ruta_descarga,
                         "tipoDocumento": tipo_doc,
+                        "matricula": matricula,
                         "documento": doc
                     })
                     descargas_exitosas += 1

@@ -67,7 +67,13 @@ class FileOrganizer:
         ruta_matricula = ruta_radicado / self._sanitizar_nombre(matricula_clean)
         ruta_matricula.mkdir(parents=True, exist_ok=True)
         
-        tipos_documento = self._agrupar_por_tipo_documento(archivos)
+        # Filtrar archivos que pertenecen a esta matrícula
+        archivos_matricula = [
+            archivo for archivo in archivos 
+            if archivo.get("matricula", "").strip() == matricula_clean
+        ]
+        
+        tipos_documento = self._agrupar_por_tipo_documento(archivos_matricula)
         
         estructura_matricula: Dict[str, Any] = {
             "ruta": str(ruta_matricula),
