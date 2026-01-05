@@ -37,6 +37,9 @@ except NameError:  # pragma: no cover
     def SetVar(_, __):  # noqa: D401, N802
         return None
 
+    def GetVar(_):  # noqa: D401, N802
+        return None
+
     def PrintException():  # noqa: D401, N802
         return None
 
@@ -188,10 +191,10 @@ try:
             _inicializar_logger_modulo(config)
 
             # Obtener variables de Rocketbot
-            graph_client_secret = GetParams("graph_client_secret")
-            dynamics_client_secret = GetParams("dynamics_client_secret")
-            docuware_password = GetParams("docuware_password")
-            database_password = GetParams("database_password")
+            graph_client_secret = GetVar("graph_client_secret")  # type: ignore[name-defined]
+            dynamics_client_secret = GetVar("dynamics_client_secret")  # type: ignore[name-defined]
+            docuware_password = GetVar("docuware_password")  # type: ignore[name-defined]
+            database_password = GetVar("database_password")  # type: ignore[name-defined]
 
             if not graph_client_secret:
                 raise ValueError("Variable de Rocketbot 'graph_client_secret' no está configurada")
@@ -252,10 +255,10 @@ try:
             _inicializar_logger_modulo(config)
 
             # Obtener variables de Rocketbot
-            graph_client_secret = GetParams("graph_client_secret")
-            dynamics_client_secret = GetParams("dynamics_client_secret")
-            docuware_password = GetParams("docuware_password")
-            database_password = GetParams("database_password")
+            graph_client_secret = GetVar("graph_client_secret")  # type: ignore[name-defined]
+            dynamics_client_secret = GetVar("dynamics_client_secret")  # type: ignore[name-defined]
+            docuware_password = GetVar("docuware_password")  # type: ignore[name-defined]
+            database_password = GetVar("database_password")  # type: ignore[name-defined]
 
             if not graph_client_secret:
                 raise ValueError("Variable de Rocketbot 'graph_client_secret' no está configurada")
@@ -310,10 +313,10 @@ try:
             _inicializar_logger_modulo(config)
 
             # Obtener variables de Rocketbot
-            graph_client_secret = GetParams("graph_client_secret")
-            dynamics_client_secret = GetParams("dynamics_client_secret")
-            docuware_password = GetParams("docuware_password")
-            database_password = GetParams("database_password")
+            graph_client_secret = GetVar("graph_client_secret")  # type: ignore[name-defined]
+            dynamics_client_secret = GetVar("dynamics_client_secret")  # type: ignore[name-defined]
+            docuware_password = GetVar("docuware_password")  # type: ignore[name-defined]
+            database_password = GetVar("database_password")  # type: ignore[name-defined]
 
             if not graph_client_secret:
                 raise ValueError("Variable de Rocketbot 'graph_client_secret' no está configurada")
