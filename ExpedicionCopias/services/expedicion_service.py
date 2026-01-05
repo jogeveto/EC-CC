@@ -230,7 +230,7 @@ class ExpedicionService:
             usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
             asunto=plantilla["asunto"],
             cuerpo=plantilla["cuerpo"],
-            destinatarios=[email_destino],
+            destinatarios=self._obtener_destinatarios_por_modo([email_destino]),
             adjuntos=[pdf_unificado]
         )
         return plantilla["cuerpo"]
@@ -275,7 +275,7 @@ class ExpedicionService:
             usuario_id=usuario_email,
             asunto=plantilla["asunto"],
             cuerpo=cuerpo_con_link,
-            destinatarios=[email_destino]
+            destinatarios=self._obtener_destinatarios_por_modo([email_destino])
         )
         
         return cuerpo_con_link
@@ -457,7 +457,7 @@ class ExpedicionService:
             usuario_id=usuario_email,
             asunto=plantilla["asunto"],
             cuerpo=cuerpo_con_link,
-            destinatarios=[email_creador]
+            destinatarios=self._obtener_destinatarios_por_modo([email_creador])
         )
         
         return cuerpo_con_link
@@ -516,6 +516,45 @@ class ExpedicionService:
         
         return {"asunto": "", "cuerpo": ""}
 
+    def _obtener_destinatarios_por_modo(self, destinatarios_originales: List[str]) -> List[str]:
+        """
+        Determina los destinatarios según el modo configurado (QA/PROD).
+        
+        Args:
+            destinatarios_originales: Lista de emails destinatarios originales
+            
+        Returns:
+            Lista de emails destinatarios (emailQa si modo es QA, originales si es PROD)
+            
+        Raises:
+            ValueError: Si modo es QA y emailQa no está configurado
+        """
+        globales_config = self.config.get("Globales", {})
+        modo = globales_config.get("modo", "PROD")
+        
+        # Validar modo
+        modo_upper = modo.upper() if isinstance(modo, str) else "PROD"
+        if modo_upper not in ["QA", "PROD"]:
+            self.logger.warning(f"Modo inválido '{modo}', usando PROD por defecto")
+            modo_upper = "PROD"
+        
+        # Si es PROD, retornar destinatarios originales
+        if modo_upper == "PROD":
+            return destinatarios_originales
+        
+        # Si es QA, validar y usar emailQa
+        email_qa = globales_config.get("emailQa", "")
+        if not email_qa:
+            error_msg = "Modo QA configurado pero 'emailQa' no está definido en la sección Globales"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # Log cuando se redirige a QA
+        destinatarios_str = ", ".join(destinatarios_originales) if destinatarios_originales else "N/A"
+        self.logger.info(f"[MODO QA] Redirigiendo correo de destinatarios originales ({destinatarios_str}) a {email_qa}")
+        
+        return [email_qa]
+
     def _obtener_email_caso(self, caso: Dict[str, Any]) -> str:
         """Obtiene el email del caso desde los campos del CRM."""
         # Prioridad: sp_correoelectronico, emailaddress, emailaddress1
@@ -557,7 +596,7 @@ class ExpedicionService:
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
                 cuerpo=cuerpo,
-                destinatarios=[email]
+                destinatarios=self._obtener_destinatarios_por_modo([email])
             )
         except Exception as e:
             self.logger.error(f"Error enviando email de error: {e}")

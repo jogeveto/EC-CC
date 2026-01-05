@@ -30,8 +30,12 @@
       "Especificaciones": ["63bac8be-07c7-f011-bbd3-00224836fe8e", "0f0e25cb-07c7-f011-bbd3-00224836fe8e"],
       "FranjasHorarias": [
         {
-          "inicio": "08:00",
-          "fin": "17:00"
+          "inicio": "09:00",
+          "fin": "10:00"
+        },
+        {
+          "inicio": "15:00",
+          "fin": "16:00"
         }
       ],
       "ExcepcionesDescarga": [
@@ -63,7 +67,11 @@
       "FranjasHorarias": [
         {
           "inicio": "08:00",
-          "fin": "17:00"
+          "fin": "09:00"
+        },
+        {
+          "inicio": "14:00",
+          "fin": "15:00"
         }
       ],
       "ExcepcionesDescarga": [
@@ -91,7 +99,9 @@
     "emailsAdministradores": ["john.velasquez@trycore.com.co"]
   },
   "Globales": {
-    "RutaBaseProyecto": "C:\\Users\\JohnVelasquezTrycore\\sourcecode\\rocketbot-projects\\CCMA-ExpedicionCopiasParticulares"
+    "RutaBaseProyecto": "C:\\Users\\JohnVelasquezTrycore\\sourcecode\\rocketbot-projects\\CCMA-ExpedicionCopiasParticulares",
+    "modo": "QA",
+    "emailQa": "john.velasquez@trycore.com.co"
   },
   "Logs": {
     "RutaLogAuditoria": "logs",
