@@ -208,6 +208,14 @@ class ExpedicionService:
             error_msg = str(e)
             self.logger.error(f"[VALIDACION] Error validando conexión a DocuWare: {error_msg}")
             return (False, error_msg)
+        finally:
+            # Cerrar sesión siempre después de la validación para liberar la licencia
+            try:
+                self.logger.info("[VALIDACION] Cerrando sesión de DocuWare después de validación...")
+                self.docuware_client.cerrar_sesion()
+                self.logger.info("[VALIDACION] Sesión de DocuWare cerrada exitosamente")
+            except Exception as e:
+                self.logger.warning(f"[VALIDACION] Error al cerrar sesión de DocuWare: {e}")
 
     def _validar_conexion_dynamics(self) -> Tuple[bool, str]:
         """
@@ -353,74 +361,83 @@ class ExpedicionService:
         """
         self.logger.info("[INICIO] Procesamiento de copias particulares")
         
-        # Cargar configuración específica de Copias
-        copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})
-        
-        # Actualizar validadores con configuración específica
-        franjas_horarias = copias_config.get("FranjasHorarias", [])
-        self.time_validator = TimeValidator(franjas_horarias=franjas_horarias)
-        excepciones = copias_config.get("ExcepcionesDescarga", [])
-        self.excepciones_validator = ExcepcionesValidator(excepciones)
-        self.docuware_client.rules_validator = self.excepciones_validator
-        
-        self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
-        
-        # La validación de franja horaria se hace antes de llamar a este método
-        # No es necesario validar aquí, solo continuar con el procesamiento
-        
-        self.logger.info("Autenticando con DocuWare...")
-        self.docuware_client.autenticar()
-        self.logger.info("Autenticación con DocuWare exitosa")
-        
-        subcategorias = copias_config.get("Subcategorias", [])
-        especificaciones = copias_config.get("Especificaciones", [])
-        
-        filtro = self._construir_filtro_crm(subcategorias, especificaciones)
-        self.logger.info(f"Filtro CRM construido: {filtro}")
-        
-        casos = self.crm_client.consultar_casos(filtro)
-        
-        self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
-        
-        for caso in casos:
-            # Validar franja horaria antes de procesar cada caso
-            if not self.time_validator.debe_ejecutar():
+        try:
+            # Cargar configuración específica de Copias
+            copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})
+            
+            # Actualizar validadores con configuración específica
+            franjas_horarias = copias_config.get("FranjasHorarias", [])
+            self.time_validator = TimeValidator(franjas_horarias=franjas_horarias)
+            excepciones = copias_config.get("ExcepcionesDescarga", [])
+            self.excepciones_validator = ExcepcionesValidator(excepciones)
+            self.docuware_client.rules_validator = self.excepciones_validator
+            
+            self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
+            
+            # La validación de franja horaria se hace antes de llamar a este método
+            # No es necesario validar aquí, solo continuar con el procesamiento
+            
+            self.logger.info("Autenticando con DocuWare...")
+            self.docuware_client.autenticar()
+            self.logger.info("Autenticación con DocuWare exitosa")
+            
+            subcategorias = copias_config.get("Subcategorias", [])
+            especificaciones = copias_config.get("Especificaciones", [])
+            
+            filtro = self._construir_filtro_crm(subcategorias, especificaciones)
+            self.logger.info(f"Filtro CRM construido: {filtro}")
+            
+            casos = self.crm_client.consultar_casos(filtro)
+            
+            self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
+            
+            for caso in casos:
+                # Validar franja horaria antes de procesar cada caso
+                if not self.time_validator.debe_ejecutar():
+                    case_id = caso.get('sp_documentoid', 'N/A')
+                    ticket_number = caso.get('sp_ticketnumber', 'N/A')
+                    self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
+                    # Agregar caso actual y todos los restantes a pendientes
+                    self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
+                    # Agregar casos restantes a pendientes
+                    indice_actual = casos.index(caso)
+                    for caso_restante in casos[indice_actual + 1:]:
+                        self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
+                    break
+                
                 case_id = caso.get('sp_documentoid', 'N/A')
                 ticket_number = caso.get('sp_ticketnumber', 'N/A')
-                self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
-                # Agregar caso actual y todos los restantes a pendientes
-                self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
-                # Agregar casos restantes a pendientes
-                indice_actual = casos.index(caso)
-                for caso_restante in casos[indice_actual + 1:]:
-                    self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
-                break
+                matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+                matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+                self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+                
+                try:
+                    self._procesar_caso_particular(caso)
+                    self.casos_procesados.append({"caso": caso, "estado": "exitoso"})
+                    self.logger.info(f"Caso {case_id} procesado exitosamente")
+                except Exception as e:
+                    error_msg = str(e)
+                    self.logger.error(f"Error procesando caso {case_id}: {error_msg}")
+                    self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
+                    self._manejar_error_caso(caso, error_msg)
             
-            case_id = caso.get('sp_documentoid', 'N/A')
-            ticket_number = caso.get('sp_ticketnumber', 'N/A')
-            matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
-            matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
-            self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+            reporte_path = self._generar_reporte_excel()
+            self.logger.info(f"Reporte generado en: {reporte_path}")
             
+            return {
+                "casos_procesados": len(self.casos_procesados),
+                "casos_error": len(self.casos_error),
+                "casos_pendientes": len(self.casos_pendientes),
+                "reporte_path": reporte_path
+            }
+        finally:
+            # Cerrar sesión siempre, incluso si hay errores
             try:
-                self._procesar_caso_particular(caso)
-                self.casos_procesados.append({"caso": caso, "estado": "exitoso"})
-                self.logger.info(f"Caso {case_id} procesado exitosamente")
+                self.logger.info("[FIN] Cerrando sesión de DocuWare...")
+                self.docuware_client.cerrar_sesion()
+                self.logger.info("[FIN] Sesión de DocuWare cerrada exitosamente")
             except Exception as e:
-                error_msg = str(e)
-                self.logger.error(f"Error procesando caso {case_id}: {error_msg}")
-                self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
-                self._manejar_error_caso(caso, error_msg)
-        
-        reporte_path = self._generar_reporte_excel()
-        self.logger.info(f"Reporte generado en: {reporte_path}")
-        
-        return {
-            "casos_procesados": len(self.casos_procesados),
-            "casos_error": len(self.casos_error),
-            "casos_pendientes": len(self.casos_pendientes),
-            "reporte_path": reporte_path
-        }
+                self.logger.warning(f"[FIN] Error al cerrar sesión de DocuWare: {e}")
 
     def _procesar_caso_particular(self, caso: Dict[str, Any]) -> None:
         """Procesa un caso individual de particulares."""
@@ -926,74 +943,83 @@ class ExpedicionService:
         """
         self.logger.info("[INICIO] Procesamiento de copias oficiales")
         
-        # Cargar configuración específica de CopiasOficiales
-        copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
-        
-        # Actualizar validadores con configuración específica
-        franjas_horarias = copias_oficiales_config.get("FranjasHorarias", [])
-        self.time_validator = TimeValidator(franjas_horarias=franjas_horarias)
-        excepciones = copias_oficiales_config.get("ExcepcionesDescarga", [])
-        self.excepciones_validator = ExcepcionesValidator(excepciones)
-        self.docuware_client.rules_validator = self.excepciones_validator
-        
-        self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
-        
-        # La validación de franja horaria se hace antes de llamar a este método
-        # No es necesario validar aquí, solo continuar con el procesamiento
-        
-        self.logger.info("Autenticando con DocuWare...")
-        self.docuware_client.autenticar()
-        self.logger.info("Autenticación con DocuWare exitosa")
-        
-        subcategorias = copias_oficiales_config.get("Subcategorias", [])
-        especificaciones = copias_oficiales_config.get("Especificaciones", [])
-        
-        filtro = self._construir_filtro_crm(subcategorias, especificaciones)
-        self.logger.info(f"Filtro CRM construido: {filtro}")
-        
-        casos = self.crm_client.consultar_casos(filtro)
-        
-        self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
-        
-        for caso in casos:
-            # Validar franja horaria antes de procesar cada caso
-            if not self.time_validator.debe_ejecutar():
+        try:
+            # Cargar configuración específica de CopiasOficiales
+            copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+            
+            # Actualizar validadores con configuración específica
+            franjas_horarias = copias_oficiales_config.get("FranjasHorarias", [])
+            self.time_validator = TimeValidator(franjas_horarias=franjas_horarias)
+            excepciones = copias_oficiales_config.get("ExcepcionesDescarga", [])
+            self.excepciones_validator = ExcepcionesValidator(excepciones)
+            self.docuware_client.rules_validator = self.excepciones_validator
+            
+            self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
+            
+            # La validación de franja horaria se hace antes de llamar a este método
+            # No es necesario validar aquí, solo continuar con el procesamiento
+            
+            self.logger.info("Autenticando con DocuWare...")
+            self.docuware_client.autenticar()
+            self.logger.info("Autenticación con DocuWare exitosa")
+            
+            subcategorias = copias_oficiales_config.get("Subcategorias", [])
+            especificaciones = copias_oficiales_config.get("Especificaciones", [])
+            
+            filtro = self._construir_filtro_crm(subcategorias, especificaciones)
+            self.logger.info(f"Filtro CRM construido: {filtro}")
+            
+            casos = self.crm_client.consultar_casos(filtro)
+            
+            self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
+            
+            for caso in casos:
+                # Validar franja horaria antes de procesar cada caso
+                if not self.time_validator.debe_ejecutar():
+                    case_id = caso.get('sp_documentoid', 'N/A')
+                    ticket_number = caso.get('sp_ticketnumber', 'N/A')
+                    self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
+                    # Agregar caso actual y todos los restantes a pendientes
+                    self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
+                    # Agregar casos restantes a pendientes
+                    indice_actual = casos.index(caso)
+                    for caso_restante in casos[indice_actual + 1:]:
+                        self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
+                    break
+                
                 case_id = caso.get('sp_documentoid', 'N/A')
                 ticket_number = caso.get('sp_ticketnumber', 'N/A')
-                self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
-                # Agregar caso actual y todos los restantes a pendientes
-                self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
-                # Agregar casos restantes a pendientes
-                indice_actual = casos.index(caso)
-                for caso_restante in casos[indice_actual + 1:]:
-                    self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
-                break
+                matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+                matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+                self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+                
+                try:
+                    self._procesar_caso_oficial(caso)
+                    self.casos_procesados.append({"caso": caso, "estado": "exitoso"})
+                    self.logger.info(f"Caso {case_id} procesado exitosamente")
+                except Exception as e:
+                    error_msg = str(e)
+                    self.logger.error(f"Error procesando caso {case_id}: {error_msg}")
+                    self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
+                    self._manejar_error_caso_oficial(caso, error_msg)
             
-            case_id = caso.get('sp_documentoid', 'N/A')
-            ticket_number = caso.get('sp_ticketnumber', 'N/A')
-            matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
-            matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
-            self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+            reporte_path = self._generar_reporte_excel()
+            self.logger.info(f"Reporte generado en: {reporte_path}")
             
+            return {
+                "casos_procesados": len(self.casos_procesados),
+                "casos_error": len(self.casos_error),
+                "casos_pendientes": len(self.casos_pendientes),
+                "reporte_path": reporte_path
+            }
+        finally:
+            # Cerrar sesión siempre, incluso si hay errores
             try:
-                self._procesar_caso_oficial(caso)
-                self.casos_procesados.append({"caso": caso, "estado": "exitoso"})
-                self.logger.info(f"Caso {case_id} procesado exitosamente")
+                self.logger.info("[FIN] Cerrando sesión de DocuWare...")
+                self.docuware_client.cerrar_sesion()
+                self.logger.info("[FIN] Sesión de DocuWare cerrada exitosamente")
             except Exception as e:
-                error_msg = str(e)
-                self.logger.error(f"Error procesando caso {case_id}: {error_msg}")
-                self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
-                self._manejar_error_caso_oficial(caso, error_msg)
-        
-        reporte_path = self._generar_reporte_excel()
-        self.logger.info(f"Reporte generado en: {reporte_path}")
-        
-        return {
-            "casos_procesados": len(self.casos_procesados),
-            "casos_error": len(self.casos_error),
-            "casos_pendientes": len(self.casos_pendientes),
-            "reporte_path": reporte_path
-        }
+                self.logger.warning(f"[FIN] Error al cerrar sesión de DocuWare: {e}")
 
     def _procesar_caso_oficial(self, caso: Dict[str, Any]) -> None:
         """Procesa un caso individual de entidades oficiales."""

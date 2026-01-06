@@ -35,6 +35,7 @@ class DocuWareClient:
         self.organization_id: Optional[str] = None
         self.file_cabinet_id: Optional[str] = None
         self.search_dialog_id: Optional[str] = None
+        self.identity_service_url: Optional[str] = None
 
     def _get_headers(self) -> Dict[str, str]:
         """
@@ -79,6 +80,9 @@ class DocuWareClient:
         
         if not identity_service_url:
             raise ValueError("No se encontró IdentityServiceUrl en la respuesta")
+        
+        # Guardar IdentityServiceUrl para usarlo en el cierre de sesión
+        self.identity_service_url = identity_service_url
         
         openid_config_url = f"{identity_service_url}/.well-known/openid-configuration"
         response = requests.get(
@@ -159,6 +163,78 @@ class DocuWareClient:
         self.logger.info("[AUTH] Autenticación completada exitosamente")
         
         return True
+
+    def cerrar_sesion(self) -> None:
+        """
+        Cierra la sesión de DocuWare revocando el token OAuth2.
+        
+        Este método debe llamarse al finalizar el uso del cliente para liberar
+        la licencia ocupada y evitar el error "License Used".
+        
+        El método maneja errores silenciosamente para no interrumpir el flujo
+        principal de la aplicación.
+        """
+        if not self.access_token:
+            self.logger.debug("[LOGOUT] No hay token de acceso activo, no se requiere cerrar sesión")
+            return
+        
+        if not self.identity_service_url:
+            self.logger.warning("[LOGOUT] No se tiene IdentityServiceUrl almacenado, intentando descubrirlo...")
+            try:
+                # Intentar descubrir el IdentityServiceUrl si no está guardado
+                server_url = self.config['serverUrl']
+                platform = self.config['platform']
+                identity_info_url = f"{server_url}/{platform}/Home/IdentityServiceInfo"
+                response = requests.get(
+                    identity_info_url,
+                    headers={"Accept": "application/json"},
+                    verify=self.verify_ssl
+                )
+                response.raise_for_status()
+                identity_info = response.json()
+                self.identity_service_url = identity_info.get('IdentityServiceUrl')
+            except Exception as e:
+                self.logger.warning(f"[LOGOUT] No se pudo obtener IdentityServiceUrl: {e}. El token puede quedar activo hasta su expiración.")
+                # Limpiar el token de todas formas
+                self.access_token = None
+                return
+        
+        try:
+            self.logger.info("[LOGOUT] Iniciando cierre de sesión de DocuWare...")
+            
+            # Revocar el token usando el endpoint estándar de OAuth2
+            revocation_url = f"{self.identity_service_url}/connect/revocation"
+            
+            data = {
+                "token": self.access_token,
+                "token_type_hint": "access_token"
+            }
+            
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            
+            response = requests.post(
+                revocation_url,
+                data=data,
+                headers=headers,
+                verify=self.verify_ssl
+            )
+            
+            # El endpoint de revocación puede devolver 200 o 400 si el token ya fue revocado
+            # Ambos casos son aceptables, así que no lanzamos excepción
+            if response.status_code in [200, 400]:
+                self.logger.info("[LOGOUT] Token revocado exitosamente. Sesión cerrada.")
+            else:
+                self.logger.warning(f"[LOGOUT] Respuesta inesperada del servidor al revocar token: {response.status_code}. El token puede quedar activo hasta su expiración.")
+        
+        except Exception as e:
+            # No lanzamos la excepción para no interrumpir el flujo principal
+            self.logger.warning(f"[LOGOUT] Error al cerrar sesión de DocuWare: {e}. El token puede quedar activo hasta su expiración.")
+        finally:
+            # Siempre limpiar el token local, incluso si la revocación falló
+            self.access_token = None
+            self.logger.debug("[LOGOUT] Token local limpiado")
 
     def _inicializar_ids(self) -> None:
         """Inicializa organization_id, file_cabinet_id y search_dialog_id."""

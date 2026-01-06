@@ -599,6 +599,7 @@ try:
                 resultado["crm"] = {"status": "error", "message": str(e)}
 
             # Verificar conexión con DocuWare
+            docuware = None
             try:
                 from ExpedicionCopias.core.docuware_client import DocuWareClient
                 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
@@ -609,6 +610,15 @@ try:
                 resultado["docuware"] = {"status": "ok", "message": "Autenticación exitosa"}
             except Exception as e:
                 resultado["docuware"] = {"status": "error", "message": str(e)}
+            finally:
+                # Cerrar sesión siempre después de la validación para liberar la licencia
+                if docuware is not None:
+                    try:
+                        logger.info("[HEALTH_CHECK] Cerrando sesión de DocuWare después de validación...")
+                        docuware.cerrar_sesion()
+                        logger.info("[HEALTH_CHECK] Sesión de DocuWare cerrada exitosamente")
+                    except Exception as e:
+                        logger.warning(f"[HEALTH_CHECK] Error al cerrar sesión de DocuWare: {e}")
 
             # Verificar conexión con Microsoft Graph API
             try:
