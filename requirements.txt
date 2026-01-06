@@ -9,3 +9,4 @@ rapidfuzz
 python-dateutil
 playwright
 python-dotenv
+PyMuPDF

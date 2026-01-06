@@ -109,6 +109,7 @@
         { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
       ],
       "emailResponsable": "john.velasquez@trycore.com.co",
+      "incluirCaratula": false,
       "PlantillaEmailReglasNoCriticas": {
         "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico",
         "cuerpo": "<html><body><p>Cordial saludo,</p><p>Por medio de la presente, notificamos la siguiente novedad identificada en el proceso de expedición de copias</p><p>[Novedad identificada]</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
@@ -162,6 +163,7 @@
         { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
       ],
       "emailResponsable": "john.velasquez@trycore.com.co",
+      "incluirCaratula": false,
       "PlantillasEmail": {
         "default": {
           "asunto": "Entrega de Copias - Entidades Oficiales",

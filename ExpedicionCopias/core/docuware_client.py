@@ -9,6 +9,13 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 
+# Intentar importar PyMuPDF para extraer attachments de PDFs
+try:
+    import fitz  # PyMuPDF
+    HAS_PYMUPDF = True
+except ImportError:
+    HAS_PYMUPDF = False
+
 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
 from shared.utils.logger import get_logger
 
@@ -16,16 +23,18 @@ from shared.utils.logger import get_logger
 class DocuWareClient:
     """Cliente para interactuar con DocuWare API."""
 
-    def __init__(self, config: Dict[str, Any], rules_validator: ExcepcionesValidator) -> None:
+    def __init__(self, config: Dict[str, Any], rules_validator: ExcepcionesValidator, incluir_caratula: bool = False) -> None:
         """
         Inicializa el cliente con configuración y validador de reglas.
 
         Args:
             config: Diccionario con configuración de DocuWare
             rules_validator: Instancia de ExcepcionesValidator para filtrar documentos
+            incluir_caratula: Si True, incluye la carátula (PDF original) al mergear attachments de sobres
         """
         self.config = config.get("DocuWare", {})
         self.rules_validator = rules_validator
+        self.incluir_caratula = incluir_caratula
         self.logger = get_logger("DocuWareClient")
         self.verify_ssl = self.config.get("verifySSL", True)
         
@@ -424,6 +433,7 @@ class DocuWareClient:
     def descargar_documento(self, document_id: str, documento: Dict[str, Any], ruta: str) -> str:
         """
         Descarga un documento de DocuWare.
+        Si el documento descargado tiene attachments embebidos (SOBRE), los extrae y mergea.
 
         Args:
             document_id: ID del documento
@@ -431,17 +441,12 @@ class DocuWareClient:
             ruta: Ruta donde guardar el archivo
 
         Returns:
-            Ruta del archivo descargado
+            Ruta del archivo descargado (o mergeado si era un SOBRE)
 
         Raises:
             Exception: Si la descarga falla
         """
         self.logger.info(f"[DESCARGAR] Iniciando descarga de documento ID: {document_id} a ruta: {ruta}")
-        
-        # Verificar si es un SOBRE (documento con múltiples secciones)
-        if self._es_sobre(documento):
-            self.logger.info(f"[DESCARGAR] Documento {document_id}: Detectado como SOBRE, unificando todas las secciones...")
-            return self._descargar_y_unificar_sobre(document_id, documento, ruta)
         
         server_url = self.config['serverUrl']
         platform = self.config['platform']
@@ -474,7 +479,36 @@ class DocuWareClient:
                 f.write(chunk)
         
         file_size_mb = file_path.stat().st_size / (1024 * 1024)
-        self.logger.info(f"[DESCARGAR] Documento {document_id}: Descarga completada exitosamente - Archivo: {file_path}, Tamaño: {file_size_mb:.2f} MB")
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Descarga completada - Archivo: {file_path}, Tamaño: {file_size_mb:.2f} MB")
+        
+        # Verificar si el PDF descargado tiene attachments embebidos (SOBRE)
+        if self._es_sobre(file_path):
+            self.logger.info(f"[DESCARGAR] Documento {document_id}: Detectado SOBRE con attachments embebidos - Extrayendo y mergeando...")
+            
+            # Crear ruta temporal para el PDF mergeado
+            temp_merged_path = file_path.parent / f"{file_path.stem}_merged{file_path.suffix}"
+            
+            try:
+                # Extraer y mergear attachments
+                merged_path = self._extraer_y_mergear_adjuntos_sobre(
+                    pdf_path=file_path,
+                    output_path=temp_merged_path,
+                    incluir_caratula=self.incluir_caratula
+                )
+                
+                # Reemplazar el archivo original con el mergeado
+                file_path.unlink()  # Eliminar original
+                temp_merged_path.rename(file_path)  # Renombrar mergeado al nombre original
+                
+                file_size_mb_final = file_path.stat().st_size / (1024 * 1024)
+                self.logger.info(f"[DESCARGAR] Documento {document_id}: SOBRE procesado exitosamente - Archivo final: {file_path}, Tamaño: {file_size_mb_final:.2f} MB")
+                
+            except Exception as e:
+                self.logger.error(f"[DESCARGAR] Documento {document_id}: Error procesando SOBRE: {e}")
+                # Si falla el procesamiento del sobre, mantener el archivo original
+                if temp_merged_path.exists():
+                    temp_merged_path.unlink()
+                raise
         
         return str(file_path)
 
@@ -577,138 +611,149 @@ class DocuWareClient:
                     return str(item)
         return None
 
-    def _es_sobre(self, documento: Dict[str, Any]) -> bool:
+    def _es_sobre(self, pdf_path: Path) -> bool:
         """
-        Verifica si un documento es un SOBRE (tiene múltiples secciones).
+        Verifica si un PDF es un SOBRE (tiene archivos embebidos/attachments).
         
         Args:
-            documento: Diccionario con metadatos del documento
+            pdf_path: Ruta al archivo PDF descargado
             
         Returns:
-            True si el documento tiene más de una sección, False en caso contrario
+            True si el PDF tiene attachments embebidos, False en caso contrario
         """
-        section_count = self._obtener_campo(documento, "DWSECTIONCOUNT")
-        if section_count:
-            try:
-                return int(section_count) > 1
-            except (ValueError, TypeError):
-                return False
-        return False
-
-    def _descargar_y_unificar_sobre(self, document_id: str, documento: Dict[str, Any], ruta: str) -> str:
-        """
-        Descarga todas las secciones de un SOBRE y las unifica en un solo PDF.
+        if not HAS_PYMUPDF:
+            self.logger.warning("[SOBRE] PyMuPDF no está instalado. No se pueden detectar archivos embebidos.")
+            return False
         
-        Args:
-            document_id: ID del documento
-            documento: Diccionario con metadatos del documento
-            ruta: Ruta donde guardar el archivo unificado
-            
-        Returns:
-            Ruta del archivo PDF unificado
-            
-        Raises:
-            Exception: Si no se pueden descargar o unificar las secciones
-        """
-        self.logger.info(f"[DESCARGAR] Documento {document_id}: Detectado SOBRE - Descargando y unificando todas las secciones...")
-        
-        server_url = self.config['serverUrl']
-        platform = self.config['platform']
-        
-        # Obtener todas las secciones del documento
-        url_sections = f"{server_url}/{platform}/FileCabinets/{self.file_cabinet_id}/Sections?docid={document_id}"
+        if not pdf_path.exists():
+            return False
         
         try:
-            response = requests.get(url_sections, headers=self._get_headers(), verify=self.verify_ssl)
-            response.raise_for_status()
+            doc = fitz.open(str(pdf_path))
+            tiene_attachments = doc.embfile_count() > 0
+            doc.close()
+            return tiene_attachments
+        except Exception as e:
+            self.logger.warning(f"[SOBRE] Error verificando attachments en {pdf_path}: {e}")
+            return False
+
+    def _extraer_y_mergear_adjuntos_sobre(self, pdf_path: Path, output_path: Path, incluir_caratula: bool = False) -> str:
+        """
+        Extrae todos los attachments embebidos de un PDF SOBRE y los mergea en un solo PDF.
+        
+        Args:
+            pdf_path: Ruta al PDF que contiene los attachments
+            output_path: Ruta donde guardar el PDF mergeado
+            incluir_caratula: Si True, incluye el PDF original (carátula) al inicio del merge
             
-            data = response.json()
-            sections = data.get('Section', [])
+        Returns:
+            Ruta del archivo PDF mergeado
             
-            if not sections:
-                raise ValueError(f"No se encontraron secciones para el SOBRE {document_id}")
+        Raises:
+            Exception: Si no se pueden extraer o mergear los attachments
+        """
+        if not HAS_PYMUPDF:
+            raise ValueError("PyMuPDF no está instalado. Instala con: pip install PyMuPDF")
+        
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"El archivo PDF no existe: {pdf_path}")
+        
+        self.logger.info(f"[SOBRE] Extrayendo y mergeando attachments de {pdf_path}")
+        
+        try:
+            doc = fitz.open(str(pdf_path))
             
-            self.logger.info(f"[DESCARGAR] Documento {document_id}: SOBRE tiene {len(sections)} sección(es) - Descargando...")
+            if not doc.embfile_count():
+                doc.close()
+                raise ValueError("El PDF no tiene archivos embebidos")
             
-            # Crear directorio temporal para las secciones
-            temp_dir = tempfile.mkdtemp(prefix=f"sobre_{document_id}_")
-            secciones_descargadas = []
+            self.logger.info(f"[SOBRE] Detectados {doc.embfile_count()} archivo(s) embebido(s) en el PDF")
+            
+            # Crear directorio temporal para los attachments extraídos
+            temp_dir = tempfile.mkdtemp(prefix=f"sobre_attachments_")
+            archivos_para_mergear = []
             
             try:
-                # Descargar cada sección
-                for idx, section in enumerate(sections, 1):
-                    section_id = section.get('Id')
-                    content_type = section.get('ContentType', 'application/pdf')
-                    
-                    self.logger.info(f"[DESCARGAR] Documento {document_id}: Descargando sección {idx}/{len(sections)}: {section_id}")
-                    
-                    url_data = f"{server_url}/{platform}/FileCabinets/{self.file_cabinet_id}/Sections/{section_id}/Data"
-                    
+                # Extraer cada attachment
+                for i in range(doc.embfile_count()):
                     try:
-                        response_data = requests.get(
-                            url_data, 
-                            headers=self._get_headers(), 
-                            stream=True, 
-                            verify=self.verify_ssl
-                        )
-                        response_data.raise_for_status()
+                        embfile = doc.embfile_info(i)
+                        nombre_archivo = embfile.get("filename", f"adjunto_{i+1}")
                         
-                        # Guardar sección temporalmente
-                        temp_file = os.path.join(temp_dir, f"seccion_{idx}_{section_id}.pdf")
-                        with open(temp_file, 'wb') as f:
-                            for chunk in response_data.iter_content(chunk_size=8192):
-                                f.write(chunk)
+                        datos_archivo = doc.embfile_get(i)
                         
-                        secciones_descargadas.append(temp_file)
-                        file_size = os.path.getsize(temp_file)
-                        self.logger.info(f"[DESCARGAR] Documento {document_id}: Sección {idx} descargada: {file_size} bytes")
+                        # Sanitizar nombre del archivo
+                        nombre_safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in nombre_archivo)
+                        while "__" in nombre_safe:
+                            nombre_safe = nombre_safe.replace("__", "_")
+                        nombre_safe = nombre_safe.strip("_")
                         
-                    except requests.exceptions.RequestException as e:
-                        self.logger.warning(f"[DESCARGAR] Documento {document_id}: Error descargando sección {idx}: {e}")
-                        # Continuar con las demás secciones
+                        # Si no tiene extensión, asumir PDF
+                        if not any(nombre_safe.lower().endswith(ext) for ext in ['.pdf', '.jpg', '.jpeg', '.png', '.tiff']):
+                            nombre_safe += ".pdf"
+                        
+                        archivo_path = Path(temp_dir) / nombre_safe
+                        
+                        with open(archivo_path, 'wb') as f:
+                            f.write(datos_archivo)
+                        
+                        # Solo agregar PDFs a la lista de merge
+                        if nombre_safe.lower().endswith('.pdf'):
+                            archivos_para_mergear.append(str(archivo_path))
+                            tamaño_kb = len(datos_archivo) / 1024
+                            self.logger.info(f"[SOBRE] Extraído: {nombre_safe} ({tamaño_kb:.2f} KB)")
+                        else:
+                            self.logger.warning(f"[SOBRE] Archivo {nombre_safe} no es PDF, se omite del merge")
+                            
+                    except Exception as e:
+                        self.logger.warning(f"[SOBRE] Error extrayendo attachment {i+1}: {e}")
                         continue
                 
-                if not secciones_descargadas:
-                    raise ValueError(f"No se pudo descargar ninguna sección del SOBRE {document_id}")
+                doc.close()
                 
-                # Unificar todas las secciones en un solo PDF
-                self.logger.info(f"[DESCARGAR] Documento {document_id}: Unificando {len(secciones_descargadas)} sección(es) en un solo PDF...")
+                if not archivos_para_mergear:
+                    raise ValueError("No se pudo extraer ningún PDF válido de los attachments")
                 
-                # Generar nombre del archivo final
-                content_type = "application/pdf"
-                filename = self._generar_nombre_archivo(documento, document_id, content_type)
-                file_path = Path(ruta) / filename
-                file_path.parent.mkdir(parents=True, exist_ok=True)
+                # Si se debe incluir la carátula, agregarla al inicio
+                if incluir_caratula:
+                    archivos_para_mergear.insert(0, str(pdf_path))
+                    self.logger.info(f"[SOBRE] Incluyendo carátula al inicio del merge")
                 
-                # Unificar PDFs usando pypdf
+                # Mergear todos los PDFs
+                self.logger.info(f"[SOBRE] Mergeando {len(archivos_para_mergear)} archivo(s) en un solo PDF...")
+                
                 writer = PdfWriter()
                 
-                for seccion_path in secciones_descargadas:
+                for archivo_pdf in archivos_para_mergear:
                     try:
-                        reader = PdfReader(seccion_path)
+                        reader = PdfReader(archivo_pdf)
                         for page in reader.pages:
                             writer.add_page(page)
                     except Exception as e:
-                        self.logger.warning(f"[DESCARGAR] Documento {document_id}: Error procesando sección {seccion_path}: {e}")
+                        self.logger.warning(f"[SOBRE] Error procesando {archivo_pdf}: {e}")
                         continue
                 
-                # Guardar PDF unificado
-                with open(file_path, 'wb') as output_file:
+                # Asegurar que el directorio de salida existe
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Guardar PDF mergeado
+                with open(output_path, 'wb') as output_file:
                     writer.write(output_file)
                 
-                file_size_mb = file_path.stat().st_size / (1024 * 1024)
-                self.logger.info(f"[DESCARGAR] Documento {document_id}: SOBRE unificado exitosamente - Archivo: {file_path}, Tamaño: {file_size_mb:.2f} MB")
+                file_size_mb = output_path.stat().st_size / (1024 * 1024)
+                self.logger.info(f"[SOBRE] PDF mergeado exitosamente: {output_path}, Tamaño: {file_size_mb:.2f} MB")
                 
-                return str(file_path)
+                return str(output_path)
                 
             finally:
                 # Limpiar archivos temporales
                 try:
                     shutil.rmtree(temp_dir)
-                    self.logger.debug(f"[DESCARGAR] Documento {document_id}: Archivos temporales eliminados")
+                    self.logger.debug(f"[SOBRE] Archivos temporales eliminados")
                 except Exception as e:
-                    self.logger.warning(f"[DESCARGAR] Documento {document_id}: Error eliminando archivos temporales: {e}")
-            
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"[DESCARGAR] Documento {document_id}: Error procesando SOBRE: {e}")
+                    self.logger.warning(f"[SOBRE] Error eliminando archivos temporales: {e}")
+        
+        except Exception as e:
+            self.logger.error(f"[SOBRE] Error procesando attachments: {e}")
             raise
+

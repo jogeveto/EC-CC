@@ -378,6 +378,9 @@ class ExpedicionService:
             excepciones = copias_config.get("ExcepcionesDescarga", [])
             self.excepciones_validator = ExcepcionesValidator(excepciones)
             self.docuware_client.rules_validator = self.excepciones_validator
+            # Actualizar configuración de carátula
+            incluir_caratula = copias_config.get("incluirCaratula", False)
+            self.docuware_client.incluir_caratula = incluir_caratula
             
             self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
             
@@ -1053,6 +1056,9 @@ class ExpedicionService:
             excepciones = copias_oficiales_config.get("ExcepcionesDescarga", [])
             self.excepciones_validator = ExcepcionesValidator(excepciones)
             self.docuware_client.rules_validator = self.excepciones_validator
+            # Actualizar configuración de carátula
+            incluir_caratula = copias_oficiales_config.get("incluirCaratula", False)
+            self.docuware_client.incluir_caratula = incluir_caratula
             
             self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
             
