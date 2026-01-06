@@ -652,14 +652,17 @@ class ExpedicionService:
         carpeta_base = self.config.get("OneDrive", {}).get("carpetaBase", "/ExpedicionCopias")
         usuario_email = self.config.get("GraphAPI", {}).get("user_email", "")
         
+        # Usar sp_name para el nombre de la carpeta visible al usuario, con fallback a case_id
+        nombre_caso = caso.get("sp_name", case_id)
+        
         self.graph_client.subir_a_onedrive(
             ruta_local=pdf_unificado,
-            carpeta_destino=f"{carpeta_base}/Particulares/{case_id}",
+            carpeta_destino=f"{carpeta_base}/Particulares/{nombre_caso}",
             usuario_id=usuario_email
         )
         
         info_item = self.graph_client._obtener_info_carpeta(
-            f"{carpeta_base}/Particulares/{case_id}/{Path(pdf_unificado).name}",
+            f"{carpeta_base}/Particulares/{nombre_caso}/{Path(pdf_unificado).name}",
             usuario_email
         )
         item_id = info_item.get("id", "")
@@ -811,7 +814,9 @@ class ExpedicionService:
             return
         
         # Reemplazar placeholders en la plantilla
-        cuerpo = plantilla["cuerpo"].replace("{case_id}", case_id)
+        # Usar sp_name para el identificador visible al usuario, con fallback a case_id
+        nombre_caso = caso.get("sp_name", case_id)
+        cuerpo = plantilla["cuerpo"].replace("{case_id}", nombre_caso)
         cuerpo = cuerpo.replace("{ticket_number}", ticket_number)
         cuerpo = cuerpo.replace("{matriculas}", matriculas_str_display)
         
@@ -862,13 +867,15 @@ class ExpedicionService:
             return
         
         # Construir mensaje HTML
+        # Usar sp_name para el identificador visible al usuario, con fallback a case_id
+        nombre_caso = caso.get("sp_name", case_id)
         asunto = f"Error al compartir archivo en OneDrive - Caso {ticket_number}"
         cuerpo = f"""<html><body>
 <p>Estimado/a Responsable,</p>
-<p>Se informa que no fue posible compartir públicamente el archivo/carpeta en OneDrive para el caso {case_id} (Radicado: {ticket_number}) debido a las políticas de seguridad de la organización.</p>
+<p>Se informa que no fue posible compartir públicamente el archivo/carpeta en OneDrive para el caso {nombre_caso} (Radicado: {ticket_number}) debido a las políticas de seguridad de la organización.</p>
 <p><strong>Información del caso:</strong></p>
 <ul>
-<li>ID Caso: {case_id}</li>
+<li>ID Caso: {nombre_caso}</li>
 <li>Radicado: {ticket_number}</li>
 <li>Tipo: {tipo}</li>
 </ul>
@@ -991,7 +998,8 @@ class ExpedicionService:
     def _procesar_caso_oficial(self, caso: Dict[str, Any]) -> None:
         """Procesa un caso individual de entidades oficiales."""
         case_id = caso.get("sp_documentoid", "")
-        radicado = caso.get("sp_ticketnumber", "") or case_id
+        # Usar sp_name para el radicado visible al usuario, con fallback a case_id
+        radicado = caso.get("sp_ticketnumber", "") or caso.get("sp_name", case_id)
         matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         
@@ -1619,7 +1627,7 @@ class ExpedicionService:
         for item in self.casos_procesados:
             caso = item.get("caso", {})
             ws.append([
-                caso.get("sp_documentoid", ""),
+                caso.get("sp_name", ""),
                 caso.get("sp_ticketnumber", ""),
                 "Exitoso",
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1629,7 +1637,7 @@ class ExpedicionService:
         for item in self.casos_error:
             caso = item.get("caso", {})
             ws.append([
-                caso.get("sp_documentoid", ""),
+                caso.get("sp_name", ""),
                 caso.get("sp_ticketnumber", ""),
                 "Error",
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1639,7 +1647,7 @@ class ExpedicionService:
         for item in self.casos_pendientes:
             caso = item.get("caso", {})
             ws.append([
-                caso.get("sp_documentoid", ""),
+                caso.get("sp_name", ""),
                 caso.get("sp_ticketnumber", ""),
                 "Pendiente",
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
