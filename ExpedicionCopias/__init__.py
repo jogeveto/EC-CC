@@ -264,50 +264,73 @@ try:
                         raise RuntimeError("No se pudo crear lock después de esperar")
                 
                 try:
-                    # Enviar notificación de inicio
-                    logger.info("Enviando notificación de inicio...")
-                    service._enviar_notificacion_inicio("Copias")
-                    
-                    logger.info("Ejecutando procesar_particulares()...")
-                    resultado = service.procesar_particulares()
+                    # Validar conexiones antes de enviar notificación de inicio
+                    logger.info("Validando conexión a DocuWare...")
+                    docuware_exitoso, docuware_error = service._validar_conexion_docuware()
+                    if not docuware_exitoso:
+                        logger.error(f"Fallo de conexión a DocuWare: {docuware_error}")
+                        service._enviar_notificacion_error_conexion("Copias", "DocuWare", docuware_error)
+                        resultado = {"status": "error", "message": f"Fallo de conexión a DocuWare: {docuware_error}", "casos_procesados": 0, "casos_error": 0, "casos_pendientes": 0}
+                        if result_var:
+                            SetVar(result_var, resultado)
+                        logger.info("[FIN] Proceso finalizado por fallo de conexión a DocuWare")
+                    else:
+                        logger.info("Validando conexión a Dynamics 365...")
+                        dynamics_exitoso, dynamics_error = service._validar_conexion_dynamics()
+                        if not dynamics_exitoso:
+                            logger.error(f"Fallo de conexión a Dynamics 365: {dynamics_error}")
+                            service._enviar_notificacion_error_conexion("Copias", "Dynamics", dynamics_error)
+                            resultado = {"status": "error", "message": f"Fallo de conexión a Dynamics 365: {dynamics_error}", "casos_procesados": 0, "casos_error": 0, "casos_pendientes": 0}
+                            if result_var:
+                                SetVar(result_var, resultado)
+                            logger.info("[FIN] Proceso finalizado por fallo de conexión a Dynamics 365")
+                        else:
+                            logger.info("Todas las validaciones de conexión pasaron exitosamente")
+                            
+                            # Enviar notificación de inicio
+                            logger.info("Enviando notificación de inicio...")
+                            service._enviar_notificacion_inicio("Copias")
+                            
+                            logger.info("Ejecutando procesar_particulares()...")
+                            resultado = service.procesar_particulares()
 
-                    casos_procesados = resultado.get('casos_procesados', 0)
-                    casos_error = resultado.get('casos_error', 0)
-                    casos_pendientes = resultado.get('casos_pendientes', 0)
-                    reporte_path = resultado.get('reporte_path', 'N/A')
-                    
-                    logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
-                    logger.info(f"[FIN] Reporte generado en: {reporte_path}")
-                    
-                    # Obtener IDs de casos procesados y con error para el resumen
-                    casos_procesados_ids = []
-                    casos_error_ids = []
-                    casos_pendientes_ids = []
-                    if hasattr(service, 'casos_procesados'):
-                        for item in service.casos_procesados:
-                            caso = item.get('caso', {})
-                            case_id = caso.get('sp_documentoid', 'N/A')
-                            casos_procesados_ids.append(case_id)
-                    if hasattr(service, 'casos_error'):
-                        for item in service.casos_error:
-                            caso = item.get('caso', {})
-                            case_id = caso.get('sp_documentoid', 'N/A')
-                            casos_error_ids.append(case_id)
-                    if hasattr(service, 'casos_pendientes'):
-                        for item in service.casos_pendientes:
-                            caso = item.get('caso', {})
-                            case_id = caso.get('sp_documentoid', 'N/A')
-                            casos_pendientes_ids.append(case_id)
-                    
-                    if casos_procesados_ids:
-                        logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
-                    if casos_error_ids:
-                        logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
-                    if casos_pendientes_ids:
-                        logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
+                            casos_procesados = resultado.get('casos_procesados', 0)
+                            casos_error = resultado.get('casos_error', 0)
+                            casos_pendientes = resultado.get('casos_pendientes', 0)
+                            reporte_path = resultado.get('reporte_path', 'N/A')
+                            
+                            logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
+                            logger.info(f"[FIN] Reporte generado en: {reporte_path}")
+                            
+                            # Obtener IDs de casos procesados y con error para el resumen
+                            casos_procesados_ids = []
+                            casos_error_ids = []
+                            casos_pendientes_ids = []
+                            if hasattr(service, 'casos_procesados'):
+                                for item in service.casos_procesados:
+                                    caso = item.get('caso', {})
+                                    case_id = caso.get('sp_documentoid', 'N/A')
+                                    casos_procesados_ids.append(case_id)
+                            if hasattr(service, 'casos_error'):
+                                for item in service.casos_error:
+                                    caso = item.get('caso', {})
+                                    case_id = caso.get('sp_documentoid', 'N/A')
+                                    casos_error_ids.append(case_id)
+                            if hasattr(service, 'casos_pendientes'):
+                                for item in service.casos_pendientes:
+                                    caso = item.get('caso', {})
+                                    case_id = caso.get('sp_documentoid', 'N/A')
+                                    casos_pendientes_ids.append(case_id)
+                            
+                            if casos_procesados_ids:
+                                logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
+                            if casos_error_ids:
+                                logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
+                            if casos_pendientes_ids:
+                                logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
 
-                    if result_var:
-                        SetVar(result_var, resultado)
+                            if result_var:
+                                SetVar(result_var, resultado)
                 finally:
                     # Eliminar lock siempre, incluso si hay error
                     logger.info("Eliminando lock...")
@@ -421,50 +444,73 @@ try:
                         raise RuntimeError("No se pudo crear lock después de esperar")
                 
                 try:
-                    # Enviar notificación de inicio
-                    logger.info("Enviando notificación de inicio...")
-                    service._enviar_notificacion_inicio("CopiasOficiales")
-                    
-                    logger.info("Ejecutando procesar_oficiales()...")
-                    resultado = service.procesar_oficiales()
+                    # Validar conexiones antes de enviar notificación de inicio
+                    logger.info("Validando conexión a DocuWare...")
+                    docuware_exitoso, docuware_error = service._validar_conexion_docuware()
+                    if not docuware_exitoso:
+                        logger.error(f"Fallo de conexión a DocuWare: {docuware_error}")
+                        service._enviar_notificacion_error_conexion("CopiasOficiales", "DocuWare", docuware_error)
+                        resultado = {"status": "error", "message": f"Fallo de conexión a DocuWare: {docuware_error}", "casos_procesados": 0, "casos_error": 0, "casos_pendientes": 0}
+                        if result_var:
+                            SetVar(result_var, resultado)
+                        logger.info("[FIN] Proceso finalizado por fallo de conexión a DocuWare")
+                    else:
+                        logger.info("Validando conexión a Dynamics 365...")
+                        dynamics_exitoso, dynamics_error = service._validar_conexion_dynamics()
+                        if not dynamics_exitoso:
+                            logger.error(f"Fallo de conexión a Dynamics 365: {dynamics_error}")
+                            service._enviar_notificacion_error_conexion("CopiasOficiales", "Dynamics", dynamics_error)
+                            resultado = {"status": "error", "message": f"Fallo de conexión a Dynamics 365: {dynamics_error}", "casos_procesados": 0, "casos_error": 0, "casos_pendientes": 0}
+                            if result_var:
+                                SetVar(result_var, resultado)
+                            logger.info("[FIN] Proceso finalizado por fallo de conexión a Dynamics 365")
+                        else:
+                            logger.info("Todas las validaciones de conexión pasaron exitosamente")
+                            
+                            # Enviar notificación de inicio
+                            logger.info("Enviando notificación de inicio...")
+                            service._enviar_notificacion_inicio("CopiasOficiales")
+                            
+                            logger.info("Ejecutando procesar_oficiales()...")
+                            resultado = service.procesar_oficiales()
 
-                    casos_procesados = resultado.get('casos_procesados', 0)
-                    casos_error = resultado.get('casos_error', 0)
-                    casos_pendientes = resultado.get('casos_pendientes', 0)
-                    reporte_path = resultado.get('reporte_path', 'N/A')
-                    
-                    logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
-                    logger.info(f"[FIN] Reporte generado en: {reporte_path}")
-                    
-                    # Obtener IDs de casos procesados y con error para el resumen
-                    casos_procesados_ids = []
-                    casos_error_ids = []
-                    casos_pendientes_ids = []
-                    if hasattr(service, 'casos_procesados'):
-                        for item in service.casos_procesados:
-                            caso = item.get('caso', {})
-                            case_id = caso.get('sp_documentoid', 'N/A')
-                            casos_procesados_ids.append(case_id)
-                    if hasattr(service, 'casos_error'):
-                        for item in service.casos_error:
-                            caso = item.get('caso', {})
-                            case_id = caso.get('sp_documentoid', 'N/A')
-                            casos_error_ids.append(case_id)
-                    if hasattr(service, 'casos_pendientes'):
-                        for item in service.casos_pendientes:
-                            caso = item.get('caso', {})
-                            case_id = caso.get('sp_documentoid', 'N/A')
-                            casos_pendientes_ids.append(case_id)
-                    
-                    if casos_procesados_ids:
-                        logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
-                    if casos_error_ids:
-                        logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
-                    if casos_pendientes_ids:
-                        logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
+                            casos_procesados = resultado.get('casos_procesados', 0)
+                            casos_error = resultado.get('casos_error', 0)
+                            casos_pendientes = resultado.get('casos_pendientes', 0)
+                            reporte_path = resultado.get('reporte_path', 'N/A')
+                            
+                            logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
+                            logger.info(f"[FIN] Reporte generado en: {reporte_path}")
+                            
+                            # Obtener IDs de casos procesados y con error para el resumen
+                            casos_procesados_ids = []
+                            casos_error_ids = []
+                            casos_pendientes_ids = []
+                            if hasattr(service, 'casos_procesados'):
+                                for item in service.casos_procesados:
+                                    caso = item.get('caso', {})
+                                    case_id = caso.get('sp_documentoid', 'N/A')
+                                    casos_procesados_ids.append(case_id)
+                            if hasattr(service, 'casos_error'):
+                                for item in service.casos_error:
+                                    caso = item.get('caso', {})
+                                    case_id = caso.get('sp_documentoid', 'N/A')
+                                    casos_error_ids.append(case_id)
+                            if hasattr(service, 'casos_pendientes'):
+                                for item in service.casos_pendientes:
+                                    caso = item.get('caso', {})
+                                    case_id = caso.get('sp_documentoid', 'N/A')
+                                    casos_pendientes_ids.append(case_id)
+                            
+                            if casos_procesados_ids:
+                                logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
+                            if casos_error_ids:
+                                logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
+                            if casos_pendientes_ids:
+                                logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
 
-                    if result_var:
-                        SetVar(result_var, resultado)
+                            if result_var:
+                                SetVar(result_var, resultado)
                 finally:
                     # Eliminar lock siempre, incluso si hay error
                     logger.info("Eliminando lock...")

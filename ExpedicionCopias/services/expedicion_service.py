@@ -4,7 +4,7 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Tuple
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 
@@ -191,6 +191,101 @@ class ExpedicionService:
                 self.logger.info(f"Lock eliminado para {tipo}")
         except Exception as e:
             self.logger.error(f"Error eliminando lock: {e}")
+
+    def _validar_conexion_docuware(self) -> Tuple[bool, str]:
+        """
+        Valida la conexión a DocuWare intentando autenticar.
+        
+        Returns:
+            Tupla con (exitoso: bool, mensaje_error: str)
+        """
+        try:
+            self.logger.info("[VALIDACION] Iniciando validación de conexión a DocuWare...")
+            self.docuware_client.autenticar()
+            self.logger.info("[VALIDACION] Conexión a DocuWare validada exitosamente")
+            return (True, "")
+        except Exception as e:
+            error_msg = str(e)
+            self.logger.error(f"[VALIDACION] Error validando conexión a DocuWare: {error_msg}")
+            return (False, error_msg)
+
+    def _validar_conexion_dynamics(self) -> Tuple[bool, str]:
+        """
+        Valida la conexión a Dynamics 365 intentando obtener el token (login).
+        
+        Returns:
+            Tupla con (exitoso: bool, mensaje_error: str)
+        """
+        try:
+            self.logger.info("[VALIDACION] Iniciando validación de conexión a Dynamics 365...")
+            self.crm_client._get_token()
+            self.logger.info("[VALIDACION] Conexión a Dynamics 365 validada exitosamente")
+            return (True, "")
+        except Exception as e:
+            error_msg = str(e)
+            self.logger.error(f"[VALIDACION] Error validando conexión a Dynamics 365: {error_msg}")
+            return (False, error_msg)
+
+    def _enviar_notificacion_error_conexion(self, tipo: str, servicio_fallido: str, mensaje_error: str) -> None:
+        """
+        Envía notificación de error de conexión al emailResponsable.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            servicio_fallido: Nombre del servicio que falló ("DocuWare" o "Dynamics")
+            mensaje_error: Mensaje de error detallado
+        """
+        try:
+            # Obtener configuración según el tipo
+            if tipo == "Copias":
+                config_seccion = self.config.get("ReglasNegocio", {}).get("Copias", {})
+                tipo_notificacion = "Copias"
+            else:  # CopiasOficiales
+                config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+                tipo_notificacion = "CopiasOficiales"
+            
+            email_responsable = config_seccion.get("emailResponsable", "")
+            
+            if not email_responsable:
+                self.logger.warning(f"emailResponsable no está configurado para {tipo}. No se enviará notificación de error de conexión.")
+                return
+            
+            # Obtener plantilla de notificación
+            notificaciones_config = self.config.get("Notificaciones", {})
+            error_config = notificaciones_config.get("ErrorConexion", {})
+            plantilla_config = error_config.get(tipo_notificacion, {})
+            
+            if not plantilla_config:
+                self.logger.warning(f"Plantilla de notificación de error de conexión no encontrada para {tipo}. No se enviará notificación.")
+                return
+            
+            asunto = plantilla_config.get("asunto", "")
+            cuerpo = plantilla_config.get("cuerpo", "")
+            
+            if not asunto or not cuerpo:
+                self.logger.warning(f"Plantilla de notificación de error de conexión incompleta para {tipo}. No se enviará notificación.")
+                return
+            
+            # Reemplazar placeholders
+            fecha_error = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cuerpo = cuerpo.replace("{fecha_error}", fecha_error)
+            cuerpo = cuerpo.replace("{servicio_fallido}", servicio_fallido)
+            cuerpo = cuerpo.replace("{mensaje_error}", mensaje_error)
+            
+            # Agregar firma al cuerpo
+            cuerpo_con_firma = self._agregar_firma(cuerpo)
+            
+            # Enviar email
+            destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+            self.graph_client.enviar_email(
+                usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
+                asunto=asunto,
+                cuerpo=cuerpo_con_firma,
+                destinatarios=destinatarios
+            )
+            self.logger.info(f"Notificación de error de conexión enviada exitosamente a {', '.join(destinatarios)} para {tipo}")
+        except Exception as e:
+            self.logger.error(f"Error enviando notificación de error de conexión para {tipo}: {e}")
 
     def _enviar_notificacion_inicio(self, tipo: str) -> None:
         """

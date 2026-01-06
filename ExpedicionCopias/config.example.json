@@ -195,6 +195,16 @@
         "asunto": "IMPORTANTE - RPA_Expedición de copias OFICIALES - Inicio de ejecución del Bot",
         "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias OFICIALES ha iniciado su ejecución.</p><p><strong>Fecha y hora de inicio:</strong> {fecha_inicio}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
       }
+    },
+    "ErrorConexion": {
+      "Copias": {
+        "asunto": "ERROR - RPA_Expedición de copias PARTICULARES - Fallo de conexión",
+        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias PARTICULARES no pudo iniciar su ejecución debido a un fallo en la conexión con {servicio_fallido}.</p><p><strong>Fecha y hora del error:</strong> {fecha_error}</p><p><strong>Servicio con fallo:</strong> {servicio_fallido}</p><p><strong>Mensaje de error:</strong></p><pre>{mensaje_error}</pre><p>Por favor, verifique la configuración y el estado del servicio {servicio_fallido}.</p><p>El bot no continuará con el procesamiento hasta que se resuelva el problema de conexión.</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+      },
+      "CopiasOficiales": {
+        "asunto": "ERROR - RPA_Expedición de copias OFICIALES - Fallo de conexión",
+        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias OFICIALES no pudo iniciar su ejecución debido a un fallo en la conexión con {servicio_fallido}.</p><p><strong>Fecha y hora del error:</strong> {fecha_error}</p><p><strong>Servicio con fallo:</strong> {servicio_fallido}</p><p><strong>Mensaje de error:</strong></p><pre>{mensaje_error}</pre><p>Por favor, verifique la configuración y el estado del servicio {servicio_fallido}.</p><p>El bot no continuará con el procesamiento hasta que se resuelva el problema de conexión.</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+      }
     }
   },
   "Firma": {
