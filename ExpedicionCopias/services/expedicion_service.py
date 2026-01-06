@@ -1729,6 +1729,9 @@ class ExpedicionService:
         for item in self.casos_procesados:
             caso = item.get("caso", {})
             ticket_number = caso.get("sp_ticketnumber", "")
+            sp_name = caso.get("sp_name", "")
+            # Combinar sp_ticketnumber y sp_name en No Radicado
+            no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
             matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
             matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
             matriculas_display = ", ".join(matriculas) if matriculas else ""
@@ -1739,7 +1742,7 @@ class ExpedicionService:
                 usuario_red,
                 nombre_estacion,
                 id_proceso,
-                ticket_number,
+                no_radicado,
                 matriculas_display,
                 "Exitoso",
                 "Procesado correctamente",
@@ -1753,6 +1756,9 @@ class ExpedicionService:
         for item in self.casos_error:
             caso = item.get("caso", {})
             ticket_number = caso.get("sp_ticketnumber", "")
+            sp_name = caso.get("sp_name", "")
+            # Combinar sp_ticketnumber y sp_name en No Radicado
+            no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
             matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
             matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
             matriculas_display = ", ".join(matriculas) if matriculas else ""
@@ -1764,7 +1770,7 @@ class ExpedicionService:
                 usuario_red,
                 nombre_estacion,
                 id_proceso,
-                ticket_number,
+                no_radicado,
                 matriculas_display,
                 "No Exitoso",
                 mensaje_error,
@@ -1778,6 +1784,9 @@ class ExpedicionService:
         for item in self.casos_pendientes:
             caso = item.get("caso", {})
             ticket_number = caso.get("sp_ticketnumber", "")
+            sp_name = caso.get("sp_name", "")
+            # Combinar sp_ticketnumber y sp_name en No Radicado
+            no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
             matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
             matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
             matriculas_display = ", ".join(matriculas) if matriculas else ""
@@ -1789,7 +1798,7 @@ class ExpedicionService:
                 usuario_red,
                 nombre_estacion,
                 id_proceso,
-                ticket_number,
+                no_radicado,
                 matriculas_display,
                 "Pendiente",
                 mensaje_pendiente,
