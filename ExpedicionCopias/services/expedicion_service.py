@@ -205,12 +205,15 @@ class ExpedicionService:
             fecha_inicio = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cuerpo = cuerpo.replace("{fecha_inicio}", fecha_inicio)
             
+            # Agregar firma al cuerpo
+            cuerpo_con_firma = self._agregar_firma(cuerpo)
+            
             # Enviar email
             destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
-                cuerpo=cuerpo,
+                cuerpo=cuerpo_con_firma,
                 destinatarios=destinatarios
             )
             self.logger.info(f"Notificación de inicio enviada exitosamente a {', '.join(destinatarios)} para {tipo}")
@@ -348,7 +351,7 @@ class ExpedicionService:
             
             if tamanio_mb < 28:
                 self.logger.info(f"[CASO {case_id}] PDF pequeño ({tamanio_mb:.2f} MB < 28 MB) - Enviando como adjunto por email")
-                cuerpo_enviado = self._enviar_pdf_pequeno(pdf_unificado, subcategoria_id, email_destino)
+                cuerpo_enviado = self._enviar_pdf_pequeno(pdf_unificado, subcategoria_id, email_destino, caso)
                 self.logger.info(f"[CASO {case_id}] Email enviado exitosamente con adjunto")
             else:
                 self.logger.info(f"[CASO {case_id}] PDF grande ({tamanio_mb:.2f} MB >= 28 MB) - Subiendo a OneDrive y enviando link")
@@ -441,7 +444,7 @@ class ExpedicionService:
         }
 
     def _enviar_pdf_pequeno(
-        self, pdf_unificado: str, subcategoria_id: str, email_destino: str
+        self, pdf_unificado: str, subcategoria_id: str, email_destino: str, caso: Dict[str, Any]
     ) -> str:
         """
         Envía PDF pequeño (< 28MB) como adjunto por email.
@@ -450,19 +453,28 @@ class ExpedicionService:
             pdf_unificado: Ruta del PDF unificado
             subcategoria_id: ID de la subcategoría
             email_destino: Email del destinatario
+            caso: Diccionario con información del caso
 
         Returns:
             Cuerpo del email enviado
         """
         plantilla = self._obtener_plantilla_email("Copias", subcategoria_id, "adjunto")
+        
+        # Reemplazar variables en asunto y cuerpo
+        asunto_procesado = self._reemplazar_variables_plantilla(plantilla["asunto"], caso)
+        cuerpo_procesado = self._reemplazar_variables_plantilla(plantilla["cuerpo"], caso)
+        
+        # Agregar firma al cuerpo
+        cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
+        
         self.graph_client.enviar_email(
             usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
-            asunto=plantilla["asunto"],
-            cuerpo=plantilla["cuerpo"],
+            asunto=asunto_procesado,
+            cuerpo=cuerpo_con_firma,
             destinatarios=self._obtener_destinatarios_por_modo([email_destino]),
             adjuntos=[pdf_unificado]
         )
-        return plantilla["cuerpo"]
+        return cuerpo_con_firma
 
     def _enviar_pdf_grande(
         self, pdf_unificado: str, case_id: str, subcategoria_id: str, email_destino: str, caso: Dict[str, Any]
@@ -552,16 +564,25 @@ class ExpedicionService:
                 raise ValueError("No se obtuvo enlace del archivo en OneDrive")
         
         plantilla = self._obtener_plantilla_email("Copias", subcategoria_id, "onedrive")
+        
+        # Primero reemplazar {link} con el enlace de OneDrive
         cuerpo_con_link = plantilla["cuerpo"].replace("{link}", link)
+        
+        # Luego reemplazar todas las variables de la plantilla
+        asunto_procesado = self._reemplazar_variables_plantilla(plantilla["asunto"], caso, link)
+        cuerpo_procesado = self._reemplazar_variables_plantilla(cuerpo_con_link, caso, link)
+        
+        # Agregar firma al cuerpo
+        cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
         
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
-            asunto=plantilla["asunto"],
-            cuerpo=cuerpo_con_link,
+            asunto=asunto_procesado,
+            cuerpo=cuerpo_con_firma,
             destinatarios=self._obtener_destinatarios_por_modo([email_destino])
         )
         
-        return cuerpo_con_link
+        return cuerpo_con_firma
 
     def _enviar_email_sin_adjuntos(
         self, caso: Dict[str, Any], tipo: str
@@ -607,6 +628,9 @@ class ExpedicionService:
         cuerpo = cuerpo.replace("{ticket_number}", ticket_number)
         cuerpo = cuerpo.replace("{matriculas}", matriculas_str_display)
         
+        # Agregar firma al cuerpo
+        cuerpo_con_firma = self._agregar_firma(cuerpo)
+        
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
         destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
         
@@ -614,7 +638,7 @@ class ExpedicionService:
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=plantilla["asunto"],
-                cuerpo=cuerpo,
+                cuerpo=cuerpo_con_firma,
                 destinatarios=destinatarios
             )
             self.logger.info(f"[CASO {case_id}] Email enviado exitosamente al responsable: {', '.join(destinatarios)}")
@@ -667,6 +691,9 @@ class ExpedicionService:
 <p>Saludos,<br>Equipo CCMA</p>
 </body></html>"""
         
+        # Agregar firma al cuerpo
+        cuerpo_con_firma = self._agregar_firma(cuerpo)
+        
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
         destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
         
@@ -674,7 +701,7 @@ class ExpedicionService:
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
-                cuerpo=cuerpo,
+                cuerpo=cuerpo_con_firma,
                 destinatarios=destinatarios
             )
             self.logger.info(f"[CASO {case_id}] Email enviado exitosamente al responsable: {', '.join(destinatarios)}")
@@ -1026,20 +1053,30 @@ class ExpedicionService:
         self.logger.info(f"[ONEDRIVE] Ruta completa en OneDrive: {ruta_onedrive}")
         
         plantilla = self._obtener_plantilla_email("CopiasOficiales")
+        
+        # Primero reemplazar {link} y {onedrive_path}
         cuerpo_con_link = plantilla["cuerpo"].replace("{link}", link)
         cuerpo_con_link = cuerpo_con_link.replace("{onedrive_path}", ruta_onedrive)
+        
+        # Luego reemplazar todas las variables de la plantilla
+        asunto_procesado = self._reemplazar_variables_plantilla(plantilla["asunto"], caso, link)
+        cuerpo_procesado = self._reemplazar_variables_plantilla(cuerpo_con_link, caso, link)
+        
+        # Agregar firma al cuerpo
+        cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
+        
         email_creador = self._obtener_email_creador(caso)
         
         self.logger.info(f"[ONEDRIVE] Enviando email a: {email_creador}")
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
-            asunto=plantilla["asunto"],
-            cuerpo=cuerpo_con_link,
+            asunto=asunto_procesado,
+            cuerpo=cuerpo_con_firma,
             destinatarios=self._obtener_destinatarios_por_modo([email_creador])
         )
         self.logger.info(f"[ONEDRIVE] Email enviado exitosamente")
         
-        return cuerpo_con_link
+        return cuerpo_con_firma
 
     def _manejar_error_caso_oficial(self, caso: Dict[str, Any], error_msg: str) -> None:
         """
@@ -1111,6 +1148,149 @@ class ExpedicionService:
             return {"asunto": "", "cuerpo": ""}
         
         return {"asunto": "", "cuerpo": ""}
+
+    def _formatear_fecha_hoy_extendida(self) -> str:
+        """
+        Formatea la fecha de hoy en formato 'dd de mm de YYYY' (ej: "05 de enero de 2026").
+        
+        Returns:
+            Fecha formateada en español
+        """
+        meses = [
+            "enero", "febrero", "marzo", "abril", "mayo", "junio",
+            "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+        ]
+        hoy = datetime.now()
+        dia = hoy.day
+        mes = meses[hoy.month - 1]
+        año = hoy.year
+        return f"{dia:02d} de {mes} de {año}"
+
+    def _formatear_fecha_hoy_corta(self) -> str:
+        """
+        Formatea la fecha de hoy en formato 'dd/mm/YYYY' (ej: "05/01/2026").
+        
+        Returns:
+            Fecha formateada
+        """
+        hoy = datetime.now()
+        return hoy.strftime("%d/%m/%Y")
+
+    def _formatear_fecha_createdon(self, createdon: Optional[str]) -> str:
+        """
+        Extrae solo la fecha de createdon (formato ISO) sin la hora.
+        
+        Args:
+            createdon: Fecha en formato ISO (ej: "2026-01-05T10:30:00Z")
+            
+        Returns:
+            Fecha en formato 'dd/mm/YYYY' o cadena vacía si no está disponible
+        """
+        if not createdon:
+            return ""
+        
+        try:
+            # Intentar parsear diferentes formatos de fecha ISO
+            if 'T' in createdon:
+                fecha_str = createdon.split('T')[0]
+            else:
+                fecha_str = createdon.split(' ')[0]
+            
+            fecha_obj = datetime.strptime(fecha_str, "%Y-%m-%d")
+            return fecha_obj.strftime("%d/%m/%Y")
+        except (ValueError, AttributeError):
+            self.logger.warning(f"No se pudo formatear la fecha createdon: {createdon}")
+            return ""
+
+    def _reemplazar_variables_plantilla(
+        self, plantilla: str, caso: Dict[str, Any], link_onedrive: str = ""
+    ) -> str:
+        """
+        Reemplaza las variables entre corchetes en la plantilla según las reglas de oro.
+        
+        Args:
+            plantilla: Texto de la plantilla con variables entre corchetes
+            caso: Diccionario con información del caso PQRS
+            link_onedrive: Enlace de OneDrive (opcional)
+            
+        Returns:
+            Plantilla con variables reemplazadas
+        """
+        resultado = plantilla
+        
+        # [Nombre de la sociedad] = sp_nombredelaempresa
+        nombre_sociedad = caso.get("sp_nombredelaempresa", "") or ""
+        resultado = resultado.replace("[Nombre de la sociedad]", nombre_sociedad)
+        
+        # [Número PQRS] = sp_name
+        numero_pqrs = caso.get("sp_name", "") or ""
+        resultado = resultado.replace("[Número PQRS]", numero_pqrs)
+        
+        # [Fecha hoy] = fecha de hoy en formato 'dd de mm de YYYY'
+        fecha_hoy_extendida = self._formatear_fecha_hoy_extendida()
+        resultado = resultado.replace("[Fecha hoy]", fecha_hoy_extendida)
+        
+        # [CLIENTE] = sp_nombredelaempresa
+        resultado = resultado.replace("[CLIENTE]", nombre_sociedad)
+        
+        # [Correo electrónico] = invt_correoelectronico
+        correo_electronico = caso.get("invt_correoelectronico", "") or ""
+        resultado = resultado.replace("[Correo electrónico]", correo_electronico)
+        resultado = resultado.replace("[Correo Electrónico]", correo_electronico)  # Variante con mayúscula
+        
+        # [Fecha de ingreso de la solicitud] = createdon (solo fecha sin hora)
+        createdon = caso.get("createdon", "")
+        fecha_ingreso = self._formatear_fecha_createdon(createdon)
+        resultado = resultado.replace("[Fecha de ingreso de la solicitud]", fecha_ingreso)
+        
+        # [Enlace Onedrive.pdf] = Enlace de oneDrive (ya se maneja con {link})
+        if link_onedrive:
+            resultado = resultado.replace("[Enlace Onedrive.pdf]", link_onedrive)
+            resultado = resultado.replace("[​Enlace Onedrive.pdf​]", link_onedrive)  # Variante con caracteres especiales
+        
+        # [Fecha de respuesta] = fecha de hoy en formato 'dd/mm/YYYY'
+        fecha_respuesta = self._formatear_fecha_hoy_corta()
+        resultado = resultado.replace("[Fecha de respuesta]", fecha_respuesta)
+        
+        return resultado
+
+    def _agregar_firma(self, cuerpo: str) -> str:
+        """
+        Agrega la firma configurada al final del cuerpo del correo si no está presente.
+        
+        Args:
+            cuerpo: Cuerpo del correo (HTML)
+            
+        Returns:
+            Cuerpo del correo con la firma agregada (si no estaba presente)
+        """
+        firma_config = self.config.get("Firma", {})
+        texto_firma = firma_config.get("texto", "")
+        
+        if not texto_firma:
+            self.logger.warning("Firma no configurada en config.json. No se agregará firma al correo.")
+            return cuerpo
+        
+        # Verificar si la firma ya está presente en el cuerpo
+        # Normalizar el texto de la firma para comparación (remover tags HTML y espacios)
+        import re
+        texto_firma_normalizado = re.sub(r'<[^>]+>', '', texto_firma).strip().lower()
+        cuerpo_normalizado = re.sub(r'<[^>]+>', '', cuerpo).strip().lower()
+        
+        # Verificar si el texto normalizado de la firma ya está en el cuerpo
+        if texto_firma_normalizado and texto_firma_normalizado in cuerpo_normalizado:
+            self.logger.debug("La firma ya está presente en el cuerpo del correo. No se agregará nuevamente.")
+            return cuerpo
+        
+        # Si el cuerpo termina con </body></html>, insertar la firma antes
+        if cuerpo.rstrip().endswith("</body></html>"):
+            # Remover el cierre de body y html
+            cuerpo_sin_cierre = cuerpo.rstrip()[:-14]  # Remover </body></html>
+            # Agregar firma y volver a cerrar
+            return f"{cuerpo_sin_cierre}{texto_firma}</body></html>"
+        else:
+            # Si no tiene estructura HTML completa, simplemente agregar al final
+            return f"{cuerpo}{texto_firma}"
 
     def _obtener_destinatarios_por_modo(self, destinatarios_originales: List[str]) -> List[str]:
         """
@@ -1188,10 +1368,13 @@ class ExpedicionService:
             asunto = f"Error en procesamiento de caso {caso.get('sp_ticketnumber', 'N/A')}"
             cuerpo = f"<html><body><p>Estimado/a,</p><p>Se presentó un error al procesar su caso:</p><p>{mensaje}</p><p>Por favor contacte al administrador.</p></body></html>"
             
+            # Agregar firma al cuerpo
+            cuerpo_con_firma = self._agregar_firma(cuerpo)
+            
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
-                cuerpo=cuerpo,
+                cuerpo=cuerpo_con_firma,
                 destinatarios=self._obtener_destinatarios_por_modo([email])
             )
         except Exception as e:
