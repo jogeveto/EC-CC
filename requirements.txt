@@ -1,6 +1,11 @@
-playwright
-python-dateutil
+pypdf>=3.0.0
+msal>=1.24.0
+azure-identity>=1.15.0
+holidays>=0.34
+openpyxl>=3.1.0
+requests>=2.31.0
 pyodbc
 rapidfuzz
+python-dateutil
+playwright
 python-dotenv
-

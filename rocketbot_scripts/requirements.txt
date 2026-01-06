@@ -1,5 +1,0 @@
-# Rocketbot Scripts Dependencies
-# Install with: pip install -r requirements.txt
-
-# Holiday detection library
-holidays>=0.35
