@@ -361,6 +361,9 @@ class ExpedicionService:
         """
         self.logger.info("[INICIO] Procesamiento de copias particulares")
         
+        # Capturar timestamp de inicio
+        fecha_hora_inicio = datetime.now()
+        
         try:
             # Cargar configuración específica de Copias
             copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})
@@ -421,8 +424,14 @@ class ExpedicionService:
                     self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
                     self._manejar_error_caso(caso, error_msg)
             
-            reporte_path = self._generar_reporte_excel()
+            # Capturar timestamp de fin antes de generar reporte
+            fecha_hora_fin = datetime.now()
+            
+            reporte_path = self._generar_reporte_excel("Copias", fecha_hora_inicio, fecha_hora_fin)
             self.logger.info(f"Reporte generado en: {reporte_path}")
+            
+            # Enviar reporte por email
+            self._enviar_reporte_por_email("Copias", reporte_path, fecha_hora_inicio, fecha_hora_fin)
             
             return {
                 "casos_procesados": len(self.casos_procesados),
@@ -468,12 +477,13 @@ class ExpedicionService:
                     self.logger.error(f"[CASO {case_id}] No se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)}")
                     raise ValueError("No se encontraron documentos en DocuWare")
                 elif total_disponibles == 0:
-                    # Todos los documentos fueron excluidos por excepciones - esto NO es un error
+                    # Todos los documentos fueron excluidos por excepciones - esto NO es un error crítico pero debe aparecer en el reporte
                     self.logger.info(f"[CASO {case_id}] Todos los documentos fueron excluidos por excepciones. No se descargaron documentos (comportamiento esperado según reglas de negocio)")
                     # Enviar email al responsable
                     self._enviar_email_sin_adjuntos(caso, "Copias")
-                    # No generar error, simplemente terminar el procesamiento sin descargar
-                    return
+                    # Agregar a casos_error con estado "No Exitoso" para que aparezca en el reporte
+                    observacion = "Todos los documentos fueron excluidos por excepciones de reglas de negocio"
+                    raise ValueError(observacion)
                 else:
                     # Hay documentos disponibles pero las descargas fallaron
                     self.logger.error(f"[CASO {case_id}] No se descargaron documentos aunque había {total_disponibles} disponible(s). Todas las descargas fallaron.")
@@ -943,6 +953,9 @@ class ExpedicionService:
         """
         self.logger.info("[INICIO] Procesamiento de copias oficiales")
         
+        # Capturar timestamp de inicio
+        fecha_hora_inicio = datetime.now()
+        
         try:
             # Cargar configuración específica de CopiasOficiales
             copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
@@ -1003,8 +1016,14 @@ class ExpedicionService:
                     self.casos_error.append({"caso": caso, "estado": "error", "mensaje": error_msg})
                     self._manejar_error_caso_oficial(caso, error_msg)
             
-            reporte_path = self._generar_reporte_excel()
+            # Capturar timestamp de fin antes de generar reporte
+            fecha_hora_fin = datetime.now()
+            
+            reporte_path = self._generar_reporte_excel("CopiasOficiales", fecha_hora_inicio, fecha_hora_fin)
             self.logger.info(f"Reporte generado en: {reporte_path}")
+            
+            # Enviar reporte por email
+            self._enviar_reporte_por_email("CopiasOficiales", reporte_path, fecha_hora_inicio, fecha_hora_fin)
             
             return {
                 "casos_procesados": len(self.casos_procesados),
@@ -1052,12 +1071,13 @@ class ExpedicionService:
                     self.logger.error(f"[CASO {case_id}] No se encontraron documentos en DocuWare para las matrículas {', '.join(matriculas)}")
                     raise ValueError("No se encontraron documentos en DocuWare")
                 elif total_disponibles == 0:
-                    # Todos los documentos fueron excluidos por excepciones - esto NO es un error
+                    # Todos los documentos fueron excluidos por excepciones - esto NO es un error crítico pero debe aparecer en el reporte
                     self.logger.info(f"[CASO {case_id}] Todos los documentos fueron excluidos por excepciones. No se descargaron documentos (comportamiento esperado según reglas de negocio)")
                     # Enviar email al responsable
                     self._enviar_email_sin_adjuntos(caso, "CopiasOficiales")
-                    # No generar error, simplemente terminar el procesamiento sin descargar
-                    return
+                    # Agregar a casos_error con estado "No Exitoso" para que aparezca en el reporte
+                    observacion = "Todos los documentos fueron excluidos por excepciones de reglas de negocio"
+                    raise ValueError(observacion)
                 else:
                     # Hay documentos disponibles pero las descargas fallaron
                     self.logger.error(f"[CASO {case_id}] No se descargaron documentos aunque había {total_disponibles} disponible(s). Todas las descargas fallaron.")
@@ -1635,49 +1655,148 @@ class ExpedicionService:
         """Stub para auditoría (no implementado por ahora)."""
         self.logger.info(f"Auditoría (stub): Caso {case_id} - {estado} - {mensaje}")
 
-    def _generar_reporte_excel(self) -> str:
-        """Genera reporte Excel con los casos procesados."""
+    def _generar_reporte_excel(self, tipo: str, fecha_hora_inicio: datetime, fecha_hora_fin: datetime) -> str:
+        """
+        Genera reporte Excel con los casos procesados.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            fecha_hora_inicio: Timestamp de inicio de ejecución
+            fecha_hora_fin: Timestamp de fin de ejecución
+            
+        Returns:
+            Ruta del archivo Excel generado
+        """
         wb = Workbook()
         ws = wb.active
         ws.title = "Reporte Expedición Copias"
         
-        headers = ["ID Caso", "Radicado", "Estado", "Fecha Procesamiento", "Observaciones"]
+        # Obtener datos del sistema con fallbacks
+        reportes_config = self.config.get("Reportes", {})
+        codigo_asistente = reportes_config.get("CodigoAsistente", "R_CCMA_ExpedicionCopias")
+        
+        # CodigoBot es dinámico según el tipo
+        if tipo == "Copias":
+            codigo_bot = "ExpedicionCopias_Particulares"
+        else:  # CopiasOficiales
+            codigo_bot = "ExpedicionCopias_Oficiales"
+        
+        # Usuario de red bot runner con fallback
+        usuario_red = os.getenv('USERNAME', '')
+        if not usuario_red:
+            usuario_red = reportes_config.get("UsuaroRedBR", "usuario.red")
+        
+        # Nombre estación bot runner con fallback
+        nombre_estacion = os.environ.get('COMPUTERNAME', '')
+        if not nombre_estacion:
+            nombre_estacion = reportes_config.get("NumeroMaquinaBR", "MAQUINA-001")
+        
+        # ID Proceso (PID del proceso Python)
+        id_proceso = os.getpid()
+        
+        # Formatear fechas y horas
+        fecha_inicio = fecha_hora_inicio.strftime("%Y-%m-%d")
+        hora_inicio = fecha_hora_inicio.strftime("%H:%M:%S")
+        fecha_fin = fecha_hora_fin.strftime("%Y-%m-%d")
+        hora_fin = fecha_hora_fin.strftime("%H:%M:%S")
+        
+        # Definir headers con las nuevas columnas
+        headers = [
+            "Codigo Asistente",
+            "Codigo Bot",
+            "Usuario de red bot runner",
+            "Nombre Estacion Bot Runner",
+            "ID Proceso",
+            "No Radicado",
+            "Matricuas",
+            "Estado proceso",
+            "Observación",
+            "Fecha Inicio de ejecución",
+            "Hora Inicio de ejecución",
+            "Fecha Fin de ejecución",
+            "Hora Fin de ejecución"
+        ]
         ws.append(headers)
         
+        # Formatear headers
         for col in range(1, len(headers) + 1):
             cell = ws.cell(row=1, column=col)
             cell.font = Font(bold=True)
             cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
             cell.alignment = Alignment(horizontal="center")
         
+        # Agregar casos exitosos
         for item in self.casos_procesados:
             caso = item.get("caso", {})
+            ticket_number = caso.get("sp_ticketnumber", "")
+            matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+            matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+            matriculas_display = ", ".join(matriculas) if matriculas else ""
+            
             ws.append([
-                caso.get("sp_name", ""),
-                caso.get("sp_ticketnumber", ""),
+                codigo_asistente,
+                codigo_bot,
+                usuario_red,
+                nombre_estacion,
+                id_proceso,
+                ticket_number,
+                matriculas_display,
                 "Exitoso",
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "Procesado correctamente"
+                "Procesado correctamente",
+                fecha_inicio,
+                hora_inicio,
+                fecha_fin,
+                hora_fin
             ])
         
+        # Agregar casos con error (No Exitosos)
         for item in self.casos_error:
             caso = item.get("caso", {})
+            ticket_number = caso.get("sp_ticketnumber", "")
+            matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+            matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+            matriculas_display = ", ".join(matriculas) if matriculas else ""
+            mensaje_error = item.get("mensaje", "")
+            
             ws.append([
-                caso.get("sp_name", ""),
-                caso.get("sp_ticketnumber", ""),
-                "Error",
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                item.get("mensaje", "")
+                codigo_asistente,
+                codigo_bot,
+                usuario_red,
+                nombre_estacion,
+                id_proceso,
+                ticket_number,
+                matriculas_display,
+                "No Exitoso",
+                mensaje_error,
+                fecha_inicio,
+                hora_inicio,
+                fecha_fin,
+                hora_fin
             ])
         
+        # Agregar casos pendientes
         for item in self.casos_pendientes:
             caso = item.get("caso", {})
+            ticket_number = caso.get("sp_ticketnumber", "")
+            matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+            matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+            matriculas_display = ", ".join(matriculas) if matriculas else ""
+            mensaje_pendiente = item.get("mensaje", "No procesado")
+            
             ws.append([
-                caso.get("sp_name", ""),
-                caso.get("sp_ticketnumber", ""),
+                codigo_asistente,
+                codigo_bot,
+                usuario_red,
+                nombre_estacion,
+                id_proceso,
+                ticket_number,
+                matriculas_display,
                 "Pendiente",
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                item.get("mensaje", "No procesado")
+                mensaje_pendiente,
+                fecha_inicio,
+                hora_inicio,
+                fecha_fin,
+                hora_fin
             ])
         
         self._ajustar_ancho_columnas(ws)
@@ -1691,6 +1810,73 @@ class ExpedicionService:
         wb.save(str(reporte_path))
         
         return str(reporte_path)
+
+    def _enviar_reporte_por_email(self, tipo: str, reporte_path: str, fecha_hora_inicio: datetime, fecha_hora_fin: datetime) -> None:
+        """
+        Envía el reporte Excel por email al emailResponsable.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            reporte_path: Ruta del archivo Excel del reporte
+            fecha_hora_inicio: Timestamp de inicio de ejecución
+            fecha_hora_fin: Timestamp de fin de ejecución
+        """
+        try:
+            # Obtener emailResponsable según el tipo de proceso
+            if tipo == "Copias":
+                config_seccion = self.config.get("ReglasNegocio", {}).get("Copias", {})
+            else:  # CopiasOficiales
+                config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+            
+            email_responsable = config_seccion.get("emailResponsable", "")
+            
+            if not email_responsable:
+                self.logger.warning(f"emailResponsable no está configurado para {tipo}. No se enviará reporte por email.")
+                return
+            
+            # Obtener plantilla de email desde config
+            reportes_config = self.config.get("Reportes", {})
+            plantilla_config = reportes_config.get("PlantillaEmail", {})
+            
+            if not plantilla_config:
+                self.logger.warning(f"PlantillaEmail no está configurada en Reportes. No se enviará reporte por email.")
+                return
+            
+            asunto = plantilla_config.get("asunto", "Reporte de Ejecución - Expedición de Copias")
+            cuerpo = plantilla_config.get("cuerpo", "<html><body><p>Estimado/a Responsable,</p><p>Se adjunta el reporte de ejecución.</p><p>Saludos,<br>Equipo CCMA</p></body></html>")
+            
+            # Reemplazar placeholders en la plantilla
+            tipo_proceso_display = "PARTICULARES" if tipo == "Copias" else "OFICIALES"
+            fecha_reporte = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            casos_exitosos = len(self.casos_procesados)
+            casos_error = len(self.casos_error)
+            casos_pendientes = len(self.casos_pendientes)
+            
+            asunto = asunto.replace("{tipo_proceso}", tipo_proceso_display)
+            cuerpo = cuerpo.replace("{tipo_proceso}", tipo_proceso_display)
+            cuerpo = cuerpo.replace("{fecha_reporte}", fecha_reporte)
+            cuerpo = cuerpo.replace("{casos_exitosos}", str(casos_exitosos))
+            cuerpo = cuerpo.replace("{casos_error}", str(casos_error))
+            cuerpo = cuerpo.replace("{casos_pendientes}", str(casos_pendientes))
+            
+            # Agregar firma al cuerpo
+            cuerpo_con_firma = self._agregar_firma(cuerpo)
+            
+            # Obtener destinatarios según modo QA/PROD
+            destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+            
+            # Enviar email con adjunto
+            self.graph_client.enviar_email(
+                usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
+                asunto=asunto,
+                cuerpo=cuerpo_con_firma,
+                destinatarios=destinatarios,
+                adjuntos=[reporte_path]
+            )
+            
+            self.logger.info(f"Reporte enviado exitosamente por email a {', '.join(destinatarios)} para {tipo}")
+        except Exception as e:
+            self.logger.error(f"Error enviando reporte por email para {tipo}: {e}")
 
     def _ajustar_ancho_columnas(self, ws: Any) -> None:
         """
