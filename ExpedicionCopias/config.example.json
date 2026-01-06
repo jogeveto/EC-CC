@@ -107,7 +107,11 @@
         { "tipoDocumento": "STICKER", "actoRegistro": "" },
         { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
       ],
-      "emailResponsable": "john.velasquez@trycore.com.co"
+      "emailResponsable": "john.velasquez@trycore.com.co",
+      "PlantillaEmailReglasNoCriticas": {
+        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico",
+        "cuerpo": "<html><body><p>Cordial saludo,</p><p>Por medio de la presente, notificamos la siguiente novedad identificada en el proceso de expedición de copias</p><p>[Novedad identificada]</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
+      }
     },
     "CopiasOficiales": {
       "Subcategorias": ["6f551f77-0ac7-f011-bbd3-00224836fe8e"],
@@ -166,6 +170,10 @@
           "asunto": "Notificación - Caso sin documentos disponibles",
           "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el caso con ID {case_id} y radicado {ticket_number} no tiene documentos disponibles para descargar debido a las reglas de negocio aplicadas.</p><p><strong>Información del caso:</strong></p><ul><li>ID Caso: {case_id}</li><li>Radicado: {ticket_number}</li><li>Matrículas: {matriculas}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
         }
+      },
+      "PlantillaEmailReglasNoCriticas": {
+        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico",
+        "cuerpo": "<html><body><p>Cordial saludo,</p><p>Por medio de la presente, notificamos la siguiente novedad identificada en el proceso de expedición de copias</p><p>[Novedad identificada]</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
       }
     }
   },
@@ -178,8 +186,8 @@
     "UsuaroRedBR": "usuario.red",
     "NumeroMaquinaBR": "MAQUINA-001",
     "PlantillaEmail": {
-      "asunto": "Reporte de Ejecución - Expedición de Copias {tipo_proceso}",
-      "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se adjunta el reporte de ejecución del proceso de expedición de copias {tipo_proceso}.</p><p><strong>Fecha de generación:</strong> {fecha_reporte}</p><p><strong>Resumen:</strong></p><ul><li>Casos procesados exitosamente: {casos_exitosos}</li><li>Casos con error: {casos_error}</li><li>Casos pendientes: {casos_pendientes}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
+      "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Fin de ejecución",
+      "cuerpo": "<html><body><p>Cordial saludo,</p><p>Se informa que el proceso de expedición de copías fue finalizdo el {fecha_fin}.</p><p>Ver, resultado del proceso:</p><p>[Reporte de gestión]</p><p>Muchas gracias.</p></body></html>"
     }
   },
   "Globales": {
@@ -195,12 +203,12 @@
   "Notificaciones": {
     "InicioEjecucion": {
       "Copias": {
-        "asunto": "IMPORTANTE - RPA_Expedición de copias PARTICULARES - Inicio de ejecución del Bot",
-        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias PARTICULARES ha iniciado su ejecución.</p><p><strong>Fecha y hora de inicio:</strong> {fecha_inicio}</p><br><p>Saludos,<br>Equipo CCMA</p></body></html>"
+        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Inicio de ejecución",
+        "cuerpo": "<html><body><p>Cordial Saludo,</p><p>Se informa que el proceso de expedición de copias ha iniciado su ejecución.</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
       },
       "CopiasOficiales": {
-        "asunto": "IMPORTANTE - RPA_Expedición de copias OFICIALES - Inicio de ejecución del Bot",
-        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias OFICIALES ha iniciado su ejecución.</p><p><strong>Fecha y hora de inicio:</strong> {fecha_inicio}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Inicio de ejecución",
+        "cuerpo": "<html><body><p>Cordial Saludo,</p><p>Se informa que el proceso de expedición de copias ha iniciado su ejecución.</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
       }
     },
     "ErrorConexion": {

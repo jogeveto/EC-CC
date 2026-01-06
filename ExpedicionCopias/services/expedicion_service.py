@@ -9,13 +9,14 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 
 from shared.utils.logger import get_logger
-from ExpedicionCopias.core.crm_client import CRMClient
+from ExpedicionCopias.core.crm_client import CRMClient, CasoNoEncontradoError
 from ExpedicionCopias.core.docuware_client import DocuWareClient
 from ExpedicionCopias.core.graph_client import GraphClient
 from ExpedicionCopias.core.pdf_processor import PDFMerger
 from ExpedicionCopias.core.file_organizer import FileOrganizer
 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
 from ExpedicionCopias.core.time_validator import TimeValidator
+from ExpedicionCopias.core.non_critical_rules_validator import NonCriticalRulesValidator
 from ExpedicionCopias.core.auth import Dynamics365Authenticator, AzureAuthenticator
 
 
@@ -394,6 +395,9 @@ class ExpedicionService:
             
             self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
             
+            # Inicializar validador de reglas no críticas
+            non_critical_validator = NonCriticalRulesValidator(self.config)
+            
             for caso in casos:
                 # Validar franja horaria antes de procesar cada caso
                 if not self.time_validator.debe_ejecutar():
@@ -413,6 +417,17 @@ class ExpedicionService:
                 matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
                 matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
                 self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+                
+                # Validar reglas no críticas antes de procesar
+                es_valido, mensaje_error = non_critical_validator.validar_reglas_no_criticas(caso, "Copias")
+                if not es_valido:
+                    self.logger.warning(f"[CASO {case_id}] Regla no crítica fallida: {mensaje_error}")
+                    # Enviar email al responsable
+                    self._enviar_email_regla_no_critica(caso, "Copias", mensaje_error)
+                    # Agregar a casos_error con estado "No Exitoso"
+                    self.casos_error.append({"caso": caso, "estado": "No Exitoso", "mensaje": mensaje_error})
+                    # Continuar con el siguiente caso
+                    continue
                 
                 try:
                     self._procesar_caso_particular(caso)
@@ -510,11 +525,20 @@ class ExpedicionService:
                 self.logger.info(f"[CASO {case_id}] PDF subido a OneDrive y email con link enviado exitosamente")
             
             self.logger.info(f"[CASO {case_id}] Actualizando caso en CRM...")
-            self.crm_client.actualizar_caso(case_id, {
-                "sp_descripciondelasolucion": cuerpo_enviado,
-                "sp_resolvercaso": True
-            })
-            self.logger.info(f"[CASO {case_id}] Caso actualizado en CRM exitosamente")
+            try:
+                self.crm_client.actualizar_caso(case_id, {
+                    "sp_descripciondelasolucion": cuerpo_enviado,
+                    "sp_resolvercaso": True
+                })
+                self.logger.info(f"[CASO {case_id}] Caso actualizado en CRM exitosamente")
+            except CasoNoEncontradoError as e:
+                # Regla no crítica #4: Caso no encontrado al intentar actualizar
+                error_msg = str(e)
+                self.logger.warning(f"[CASO {case_id}] Regla no crítica fallida: {error_msg}")
+                # Enviar email al responsable
+                self._enviar_email_regla_no_critica(caso, "Copias", error_msg)
+                # Lanzar excepción para que se maneje como error y se agregue a casos_error
+                raise ValueError(f"Regla no crítica: {error_msg}")
             
             self._auditar_caso(case_id, "exitoso", "Caso procesado correctamente")
             
@@ -864,6 +888,66 @@ class ExpedicionService:
         except Exception as e:
             self.logger.error(f"[CASO {case_id}] Error enviando email al responsable: {e}")
 
+    def _enviar_email_regla_no_critica(
+        self, caso: Dict[str, Any], tipo: str, novedad: str
+    ) -> None:
+        """
+        Envía email al responsable cuando una regla no crítica falla.
+
+        Args:
+            caso: Diccionario con información del caso
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            novedad: Mensaje descriptivo de la novedad identificada
+        """
+        case_id = caso.get("sp_documentoid", "N/A")
+        self.logger.info(f"[CASO {case_id}] Enviando email de regla no crítica al responsable - Tipo: {tipo}")
+        
+        # Obtener emailResponsable de la configuración
+        if tipo == "Copias":
+            config_seccion = self.config.get("ReglasNegocio", {}).get("Copias", {})
+        else:  # CopiasOficiales
+            config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+        
+        email_responsable = config_seccion.get("emailResponsable", "")
+        
+        if not email_responsable:
+            self.logger.warning(f"[CASO {case_id}] emailResponsable no está configurado para {tipo}. No se enviará email.")
+            return
+        
+        # Obtener plantilla de reglas no críticas
+        plantilla_config = config_seccion.get("PlantillaEmailReglasNoCriticas", {})
+        
+        if not plantilla_config:
+            self.logger.warning(f"[CASO {case_id}] PlantillaEmailReglasNoCriticas no está configurada para {tipo}. No se enviará email.")
+            return
+        
+        asunto = plantilla_config.get("asunto", "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico")
+        cuerpo = plantilla_config.get("cuerpo", "")
+        
+        if not cuerpo:
+            self.logger.warning(f"[CASO {case_id}] Cuerpo de plantilla vacío. No se enviará email.")
+            return
+        
+        # Reemplazar placeholder [Novedad identificada] con el mensaje específico
+        cuerpo = cuerpo.replace("[Novedad identificada]", novedad)
+        
+        # Agregar firma al cuerpo
+        cuerpo_con_firma = self._agregar_firma(cuerpo)
+        
+        # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
+        destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+        
+        try:
+            self.graph_client.enviar_email(
+                usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
+                asunto=asunto,
+                cuerpo=cuerpo_con_firma,
+                destinatarios=destinatarios
+            )
+            self.logger.info(f"[CASO {case_id}] Email de regla no crítica enviado exitosamente al responsable: {', '.join(destinatarios)}")
+        except Exception as e:
+            self.logger.error(f"[CASO {case_id}] Error enviando email de regla no crítica al responsable: {e}")
+
     def _enviar_email_error_compartir(
         self, caso: Dict[str, Any], tipo: str, error_msg: str, link_onedrive: str
     ) -> None:
@@ -986,6 +1070,9 @@ class ExpedicionService:
             
             self.logger.info(f"Casos encontrados para procesar: {len(casos)}")
             
+            # Inicializar validador de reglas no críticas
+            non_critical_validator = NonCriticalRulesValidator(self.config)
+            
             for caso in casos:
                 # Validar franja horaria antes de procesar cada caso
                 if not self.time_validator.debe_ejecutar():
@@ -1005,6 +1092,17 @@ class ExpedicionService:
                 matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
                 matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
                 self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+                
+                # Validar reglas no críticas antes de procesar
+                es_valido, mensaje_error = non_critical_validator.validar_reglas_no_criticas(caso, "CopiasOficiales")
+                if not es_valido:
+                    self.logger.warning(f"[CASO {case_id}] Regla no crítica fallida: {mensaje_error}")
+                    # Enviar email al responsable
+                    self._enviar_email_regla_no_critica(caso, "CopiasOficiales", mensaje_error)
+                    # Agregar a casos_error con estado "No Exitoso"
+                    self.casos_error.append({"caso": caso, "estado": "No Exitoso", "mensaje": mensaje_error})
+                    # Continuar con el siguiente caso
+                    continue
                 
                 try:
                     self._procesar_caso_oficial(caso)
@@ -1099,11 +1197,20 @@ class ExpedicionService:
             self.logger.info(f"[CASO {case_id}] Carpeta subida a OneDrive y email con link enviado exitosamente")
             
             self.logger.info(f"[CASO {case_id}] Actualizando caso en CRM...")
-            self.crm_client.actualizar_caso(case_id, {
-                "sp_descripciondelasolucion": cuerpo_con_link,
-                "sp_resolvercaso": True
-            })
-            self.logger.info(f"[CASO {case_id}] Caso actualizado en CRM exitosamente")
+            try:
+                self.crm_client.actualizar_caso(case_id, {
+                    "sp_descripciondelasolucion": cuerpo_con_link,
+                    "sp_resolvercaso": True
+                })
+                self.logger.info(f"[CASO {case_id}] Caso actualizado en CRM exitosamente")
+            except CasoNoEncontradoError as e:
+                # Regla no crítica #4: Caso no encontrado al intentar actualizar
+                error_msg = str(e)
+                self.logger.warning(f"[CASO {case_id}] Regla no crítica fallida: {error_msg}")
+                # Enviar email al responsable
+                self._enviar_email_regla_no_critica(caso, "CopiasOficiales", error_msg)
+                # Lanzar excepción para que se maneje como error y se agregue a casos_error
+                raise ValueError(f"Regla no crítica: {error_msg}")
             
             self._auditar_caso(case_id, "exitoso", "Caso procesado correctamente")
             
@@ -1857,6 +1964,7 @@ class ExpedicionService:
             # Reemplazar placeholders en la plantilla
             tipo_proceso_display = "PARTICULARES" if tipo == "Copias" else "OFICIALES"
             fecha_reporte = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            fecha_fin = fecha_hora_fin.strftime("%d%m%Y-%H%M%S")
             casos_exitosos = len(self.casos_procesados)
             casos_error = len(self.casos_error)
             casos_pendientes = len(self.casos_pendientes)
@@ -1864,6 +1972,7 @@ class ExpedicionService:
             asunto = asunto.replace("{tipo_proceso}", tipo_proceso_display)
             cuerpo = cuerpo.replace("{tipo_proceso}", tipo_proceso_display)
             cuerpo = cuerpo.replace("{fecha_reporte}", fecha_reporte)
+            cuerpo = cuerpo.replace("{fecha_fin}", fecha_fin)
             cuerpo = cuerpo.replace("{casos_exitosos}", str(casos_exitosos))
             cuerpo = cuerpo.replace("{casos_error}", str(casos_error))
             cuerpo = cuerpo.replace("{casos_pendientes}", str(casos_pendientes))

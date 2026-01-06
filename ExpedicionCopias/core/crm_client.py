@@ -5,6 +5,11 @@ from typing import Any
 from ExpedicionCopias.core.auth import Dynamics365Authenticator
 
 
+class CasoNoEncontradoError(Exception):
+    """Excepción lanzada cuando un caso no se encuentra en el CRM."""
+    pass
+
+
 class CRMClient:
     """Cliente HTTP para realizar peticiones a Dynamics 365 Web API."""
 
@@ -323,6 +328,21 @@ class CRMClient:
 
         Returns:
             Respuesta de la actualización
+
+        Raises:
+            CasoNoEncontradoError: Si el caso no se encuentra en el CRM (404)
+            requests.HTTPError: Si hay otro error en la petición
         """
         endpoint = f"/{self.ENTITY_NAME}({case_id})"
-        return self.patch(endpoint, data=datos)
+        try:
+            return self.patch(endpoint, data=datos)
+        except requests.HTTPError as e:
+            # Verificar si el error es 404 (caso no encontrado)
+            if hasattr(e, 'response') and e.response is not None:
+                if e.response.status_code == 404:
+                    raise CasoNoEncontradoError(
+                        f"No se encontró el caso con ID {case_id} en el CRM. "
+                        f"El caso puede haber sido eliminado o el ID es incorrecto."
+                    ) from e
+            # Re-lanzar otros errores HTTP
+            raise
