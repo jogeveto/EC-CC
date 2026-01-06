@@ -28,7 +28,7 @@
     "Copias": {
       "Subcategorias": [
         {
-          "id": "08a7481b-fd00-f011-bae4-002248dec1fc",
+          "id": "69a7481b-fd00-f011-bae4-002248dec1fc",
           "PlantillasEmail": {
             "adjunto": {
               "asunto": "Respuesta solicitud de copias [Nombre de la sociedad]",
@@ -45,7 +45,7 @@
           }
         },
         {
-          "id": "69a7481b-fd00-f011-bae4-002248dec1fc",
+          "id": "08a7481b-fd00-f011-bae4-002248dec1fc",
           "PlantillasEmail": {
             "adjunto": {
               "asunto": "Respuesta solicitud de copias [Nombre de la sociedad]",
@@ -110,7 +110,7 @@
       "emailResponsable": "john.velasquez@trycore.com.co"
     },
     "CopiasOficiales": {
-      "Subcategorias": ["69a7481b-fd00-f011-bae4-002248dec1fc", "08a7481b-fd00-f011-bae4-002248dec1fc"],
+      "Subcategorias": ["6f551f77-0ac7-f011-bbd3-00224836fe8e"],
       "Especificaciones": ["63bac8be-07c7-f011-bbd3-00224836fe8e","0f0e25cb-07c7-f011-bbd3-00224836fe8e"],
       "FranjasHorarias": [
         {
