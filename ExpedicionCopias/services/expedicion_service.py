@@ -1333,48 +1333,48 @@ class ExpedicionService:
         web_url = info_carpeta.get("webUrl", "")
         case_id = caso.get("sp_documentoid", "N/A")
         
-        # Obtener email del destinatario: invt_correoelectronico del caso
+        # Para COPIAS OFICIALES, siempre usar emailResponsable del config
+        copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+        email_responsable = copias_oficiales_config.get("emailResponsable", "")
+        
         # En modo QA, usar emailQa de la configuración global
-        email_destinatario = caso.get("invt_correoelectronico", "")
         globales_config = self.config.get("Globales", {})
         modo = globales_config.get("modo", "PROD")
         
         if modo.upper() == "QA":
             email_qa = globales_config.get("emailQa", "")
             if email_qa:
-                email_destinatario = email_qa
+                email_responsable = email_qa
                 self.logger.info(f"[CASO {case_id}] Modo QA: Usando emailQa ({email_qa}) para compartir")
             else:
-                self.logger.warning(f"[CASO {case_id}] Modo QA pero emailQa no configurado. Usando invt_correoelectronico")
+                self.logger.warning(f"[CASO {case_id}] Modo QA pero emailQa no configurado. Usando emailResponsable del config")
         
-        # Intentar compartir la carpeta con el destinatario por correo
+        # Validar que emailResponsable esté configurado antes de compartir
+        if not email_responsable or not self._validar_email(email_responsable):
+            error_msg = f"[CASO {case_id}] emailResponsable no está configurado o no es válido para CopiasOficiales. Valor: '{email_responsable}'"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        # Intentar compartir la carpeta con emailResponsable
         link = ""
         try:
-            if email_destinatario:
-                self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id}) con destinatario: {email_destinatario}")
-                link_info = self.graph_client.compartir_con_usuario(
-                    item_id=carpeta_id,
-                    usuario_id=usuario_email,
-                    email_destinatario=email_destinatario,
-                    rol="read"
-                )
-                link = link_info.get("link", "")
-                if link:
-                    self.logger.info(f"[ONEDRIVE] Carpeta compartida con destinatario exitosamente. Invitación enviada por correo.")
-                else:
-                    # Si el link viene vacío, usar webUrl como fallback
-                    if web_url:
-                        link = web_url
-                        self.logger.warning(f"[CASO {case_id}] Link compartido vacío, usando webUrl como fallback: {link[:50]}...")
-                    else:
-                        self.logger.error(f"[CASO {case_id}] No se obtuvo link ni webUrl después de compartir")
+            self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id}) con emailResponsable: {email_responsable}")
+            link_info = self.graph_client.compartir_con_usuario(
+                item_id=carpeta_id,
+                usuario_id=usuario_email,
+                email_destinatario=email_responsable,
+                rol="read"
+            )
+            link = link_info.get("link", "")
+            if link:
+                self.logger.info(f"[ONEDRIVE] Carpeta compartida con emailResponsable exitosamente. Invitación enviada por correo.")
             else:
-                self.logger.warning(f"[CASO {case_id}] No se encontró email destinatario (invt_correoelectronico). Usando método de compartir tradicional.")
-                # Fallback al método anterior si no hay email destinatario
-                link_info = self.graph_client.compartir_carpeta(carpeta_id, usuario_email)
-                link = link_info.get("link", "")
-                if link:
-                    self.logger.info(f"[ONEDRIVE] Carpeta compartida. Enlace obtenido: {link[:50]}...")
+                # Si el link viene vacío, usar webUrl como fallback
+                if web_url:
+                    link = web_url
+                    self.logger.warning(f"[CASO {case_id}] Link compartido vacío, usando webUrl como fallback: {link[:50]}...")
+                else:
+                    self.logger.error(f"[CASO {case_id}] No se obtuvo link ni webUrl después de compartir")
         except Exception as e:
             error_msg = str(e)
             self.logger.warning(f"[CASO {case_id}] No se pudo compartir la carpeta en OneDrive: {error_msg}")
@@ -1416,15 +1416,8 @@ class ExpedicionService:
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
         
-        # Para COPIAS OFICIALES, siempre usar emailResponsable del config
-        copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
-        email_responsable = copias_oficiales_config.get("emailResponsable", "")
-        
-        if not email_responsable or not self._validar_email(email_responsable):
-            error_msg = f"[CASO {case_id}] emailResponsable no está configurado o no es válido para CopiasOficiales. Valor: '{email_responsable}'"
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
-        
+        # emailResponsable ya está obtenido y validado antes del compartir
+        # Reutilizar la misma variable para el envío de email
         self.logger.info(f"[CASO {case_id}] Enviando email a emailResponsable: {email_responsable}")
         # Enviar el email
         self.graph_client.enviar_email(
