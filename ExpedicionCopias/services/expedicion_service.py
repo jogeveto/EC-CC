@@ -3,7 +3,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 
@@ -1056,12 +1056,22 @@ class ExpedicionService:
         except Exception as email_error:
             self.logger.error(f"Error enviando email de error: {email_error}")
 
-    def _construir_filtro_crm(self, subcategorias: List[str], especificaciones: List[str]) -> str:
+    def _construir_filtro_crm(self, subcategorias: List[Union[str, Dict[str, Any]]], especificaciones: List[str]) -> str:
         """Construye el filtro OData para consultar casos en CRM."""
+        # Extraer IDs de subcategorias (pueden ser strings o objetos con 'id')
+        subcat_ids = []
+        for subcat in subcategorias:
+            if isinstance(subcat, str):
+                subcat_ids.append(subcat)
+            elif isinstance(subcat, dict):
+                subcat_id = subcat.get("id", "")
+                if subcat_id:
+                    subcat_ids.append(subcat_id)
+        
         condiciones_subcat = " or ".join([
-            f"_sp_subcategoriapqrs_value eq '{subcat_id}'" for subcat_id in subcategorias
+            f"_sp_subcategoriapqrs_value eq '{subcat_id}'" for subcat_id in subcat_ids
         ])
-        filtro_subcat = f"({condiciones_subcat})" if subcategorias else ""
+        filtro_subcat = f"({condiciones_subcat})" if subcat_ids else ""
         
         condiciones_espec = " or ".join([
             f"_invt_especificacion_value eq '{espec_id}'" for espec_id in especificaciones
@@ -1092,9 +1102,13 @@ class ExpedicionService:
         
         if tipo == "Copias":
             copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})
-            plantillas = copias_config.get("PlantillasEmail", {})
-            plantilla_subcat = plantillas.get(subcategoria_id, {})
-            return plantilla_subcat.get(variante, {"asunto": "", "cuerpo": ""})
+            subcategorias = copias_config.get("Subcategorias", [])
+            # Buscar la subcategoría por ID en el array de objetos
+            for subcat in subcategorias:
+                if isinstance(subcat, dict) and subcat.get("id") == subcategoria_id:
+                    plantillas = subcat.get("PlantillasEmail", {})
+                    return plantillas.get(variante, {"asunto": "", "cuerpo": ""})
+            return {"asunto": "", "cuerpo": ""}
         
         return {"asunto": "", "cuerpo": ""}
 
