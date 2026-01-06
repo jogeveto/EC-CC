@@ -89,6 +89,34 @@ class ExpedicionService:
         self.pdf_merger = PDFMerger()
         self.file_organizer = FileOrganizer()
 
+    def _validar_franja_horaria_tipo(self, tipo: str) -> bool:
+        """
+        Valida si el proceso debe ejecutarse según la franja horaria y día hábil.
+        
+        Args:
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            
+        Returns:
+            True si debe ejecutarse, False en caso contrario
+        """
+        # Obtener configuración específica del tipo
+        if tipo == "Copias":
+            config_seccion = self.config.get("ReglasNegocio", {}).get("Copias", {})
+        elif tipo == "CopiasOficiales":
+            config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+        else:
+            self.logger.warning(f"Tipo desconocido: {tipo}. No se validará franja horaria.")
+            return True  # Por defecto, permitir ejecución si el tipo es desconocido
+        
+        # Obtener franjas horarias de la configuración
+        franjas_horarias = config_seccion.get("FranjasHorarias", [])
+        
+        # Crear TimeValidator temporal con las franjas horarias
+        time_validator = TimeValidator(franjas_horarias=franjas_horarias)
+        
+        # Validar si debe ejecutarse
+        return time_validator.debe_ejecutar()
+
     def _obtener_ruta_lock(self, tipo: str) -> Path:
         """
         Obtiene la ruta del archivo lock para un tipo de proceso.
@@ -242,8 +270,8 @@ class ExpedicionService:
         
         self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
         
-        if not self.time_validator.debe_ejecutar():
-            raise ValueError("Fuera de franja horaria o día no hábil")
+        # La validación de franja horaria se hace antes de llamar a este método
+        # No es necesario validar aquí, solo continuar con el procesamiento
         
         self.logger.info("Autenticando con DocuWare...")
         self.docuware_client.autenticar()
@@ -808,8 +836,8 @@ class ExpedicionService:
         
         self.logger.info(f"Configuración cargada - Franjas horarias: {len(franjas_horarias)}, Excepciones: {len(excepciones)}")
         
-        if not self.time_validator.debe_ejecutar():
-            raise ValueError("Fuera de franja horaria o día no hábil")
+        # La validación de franja horaria se hace antes de llamar a este método
+        # No es necesario validar aquí, solo continuar con el procesamiento
         
         self.logger.info("Autenticando con DocuWare...")
         self.docuware_client.autenticar()

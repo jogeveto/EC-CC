@@ -230,72 +230,88 @@ try:
             logger.info("Creando instancia de ExpedicionService...")
             service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
             
-            # Verificar y crear lock
-            logger.info("Verificando lock para procesar_copias...")
-            if not service._crear_lock("Copias"):
-                logger.warning("El bot ya está ejecutándose. Esperando a que termine...")
-                # Esperar hasta que el lock se libere (máximo 24 horas)
-                import time
-                max_espera = 86400  # 24 horas en segundos
-                tiempo_inicio = time.time()
-                while service._obtener_ruta_lock("Copias").exists():
-                    if time.time() - tiempo_inicio > max_espera:
-                        logger.error("Timeout esperando lock. El proceso anterior puede estar bloqueado.")
-                        raise RuntimeError("No se pudo obtener lock después de 24 horas")
-                    time.sleep(5)  # Esperar 5 segundos antes de verificar nuevamente
-                logger.info("Lock liberado. Creando nuevo lock...")
-                if not service._crear_lock("Copias"):
-                    raise RuntimeError("No se pudo crear lock después de esperar")
-            
-            try:
-                # Enviar notificación de inicio
-                logger.info("Enviando notificación de inicio...")
-                service._enviar_notificacion_inicio("Copias")
-                
-                logger.info("Ejecutando procesar_particulares()...")
-                resultado = service.procesar_particulares()
-
-                casos_procesados = resultado.get('casos_procesados', 0)
-                casos_error = resultado.get('casos_error', 0)
-                casos_pendientes = resultado.get('casos_pendientes', 0)
-                reporte_path = resultado.get('reporte_path', 'N/A')
-                
-                logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
-                logger.info(f"[FIN] Reporte generado en: {reporte_path}")
-                
-                # Obtener IDs de casos procesados y con error para el resumen
-                casos_procesados_ids = []
-                casos_error_ids = []
-                casos_pendientes_ids = []
-                if hasattr(service, 'casos_procesados'):
-                    for item in service.casos_procesados:
-                        caso = item.get('caso', {})
-                        case_id = caso.get('sp_documentoid', 'N/A')
-                        casos_procesados_ids.append(case_id)
-                if hasattr(service, 'casos_error'):
-                    for item in service.casos_error:
-                        caso = item.get('caso', {})
-                        case_id = caso.get('sp_documentoid', 'N/A')
-                        casos_error_ids.append(case_id)
-                if hasattr(service, 'casos_pendientes'):
-                    for item in service.casos_pendientes:
-                        caso = item.get('caso', {})
-                        case_id = caso.get('sp_documentoid', 'N/A')
-                        casos_pendientes_ids.append(case_id)
-                
-                if casos_procesados_ids:
-                    logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
-                if casos_error_ids:
-                    logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
-                if casos_pendientes_ids:
-                    logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
-
+            # Validar franja horaria ANTES de cualquier acción
+            logger.info("Validando franja horaria y día hábil...")
+            if not service._validar_franja_horaria_tipo("Copias"):
+                logger.info("Proceso no ejecutado: fuera de franja horaria o día no hábil")
+                resultado = {
+                    "status": "skipped",
+                    "message": "Proceso no ejecutado: fuera de franja horaria o día no hábil",
+                    "casos_procesados": 0,
+                    "casos_error": 0,
+                    "casos_pendientes": 0
+                }
                 if result_var:
                     SetVar(result_var, resultado)
-            finally:
-                # Eliminar lock siempre, incluso si hay error
-                logger.info("Eliminando lock...")
-                service._eliminar_lock("Copias")
+                # Terminar el proceso silenciosamente sin hacer nada más
+                logger.info("[FIN] Proceso finalizado sin ejecución (fuera de franja horaria)")
+            else:
+                # Verificar y crear lock
+                logger.info("Verificando lock para procesar_copias...")
+                if not service._crear_lock("Copias"):
+                    logger.warning("El bot ya está ejecutándose. Esperando a que termine...")
+                    # Esperar hasta que el lock se libere (máximo 24 horas)
+                    import time
+                    max_espera = 86400  # 24 horas en segundos
+                    tiempo_inicio = time.time()
+                    while service._obtener_ruta_lock("Copias").exists():
+                        if time.time() - tiempo_inicio > max_espera:
+                            logger.error("Timeout esperando lock. El proceso anterior puede estar bloqueado.")
+                            raise RuntimeError("No se pudo obtener lock después de 24 horas")
+                        time.sleep(5)  # Esperar 5 segundos antes de verificar nuevamente
+                    logger.info("Lock liberado. Creando nuevo lock...")
+                    if not service._crear_lock("Copias"):
+                        raise RuntimeError("No se pudo crear lock después de esperar")
+                
+                try:
+                    # Enviar notificación de inicio
+                    logger.info("Enviando notificación de inicio...")
+                    service._enviar_notificacion_inicio("Copias")
+                    
+                    logger.info("Ejecutando procesar_particulares()...")
+                    resultado = service.procesar_particulares()
+
+                    casos_procesados = resultado.get('casos_procesados', 0)
+                    casos_error = resultado.get('casos_error', 0)
+                    casos_pendientes = resultado.get('casos_pendientes', 0)
+                    reporte_path = resultado.get('reporte_path', 'N/A')
+                    
+                    logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
+                    logger.info(f"[FIN] Reporte generado en: {reporte_path}")
+                    
+                    # Obtener IDs de casos procesados y con error para el resumen
+                    casos_procesados_ids = []
+                    casos_error_ids = []
+                    casos_pendientes_ids = []
+                    if hasattr(service, 'casos_procesados'):
+                        for item in service.casos_procesados:
+                            caso = item.get('caso', {})
+                            case_id = caso.get('sp_documentoid', 'N/A')
+                            casos_procesados_ids.append(case_id)
+                    if hasattr(service, 'casos_error'):
+                        for item in service.casos_error:
+                            caso = item.get('caso', {})
+                            case_id = caso.get('sp_documentoid', 'N/A')
+                            casos_error_ids.append(case_id)
+                    if hasattr(service, 'casos_pendientes'):
+                        for item in service.casos_pendientes:
+                            caso = item.get('caso', {})
+                            case_id = caso.get('sp_documentoid', 'N/A')
+                            casos_pendientes_ids.append(case_id)
+                    
+                    if casos_procesados_ids:
+                        logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
+                    if casos_error_ids:
+                        logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
+                    if casos_pendientes_ids:
+                        logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
+
+                    if result_var:
+                        SetVar(result_var, resultado)
+                finally:
+                    # Eliminar lock siempre, incluso si hay error
+                    logger.info("Eliminando lock...")
+                    service._eliminar_lock("Copias")
 
         except Exception as e:
             error_msg = f"Error al procesar copias: {str(e)}"
@@ -371,72 +387,88 @@ try:
             logger.info("Creando instancia de ExpedicionService...")
             service: ExpedicionService = ExpedicionServiceClass(config)  # type: ignore[assignment]
             
-            # Verificar y crear lock
-            logger.info("Verificando lock para procesar_copias_oficiales...")
-            if not service._crear_lock("CopiasOficiales"):
-                logger.warning("El bot ya está ejecutándose. Esperando a que termine...")
-                # Esperar hasta que el lock se libere (máximo 24 horas)
-                import time
-                max_espera = 86400  # 24 horas en segundos
-                tiempo_inicio = time.time()
-                while service._obtener_ruta_lock("CopiasOficiales").exists():
-                    if time.time() - tiempo_inicio > max_espera:
-                        logger.error("Timeout esperando lock. El proceso anterior puede estar bloqueado.")
-                        raise RuntimeError("No se pudo obtener lock después de 24 horas")
-                    time.sleep(5)  # Esperar 5 segundos antes de verificar nuevamente
-                logger.info("Lock liberado. Creando nuevo lock...")
-                if not service._crear_lock("CopiasOficiales"):
-                    raise RuntimeError("No se pudo crear lock después de esperar")
-            
-            try:
-                # Enviar notificación de inicio
-                logger.info("Enviando notificación de inicio...")
-                service._enviar_notificacion_inicio("CopiasOficiales")
-                
-                logger.info("Ejecutando procesar_oficiales()...")
-                resultado = service.procesar_oficiales()
-
-                casos_procesados = resultado.get('casos_procesados', 0)
-                casos_error = resultado.get('casos_error', 0)
-                casos_pendientes = resultado.get('casos_pendientes', 0)
-                reporte_path = resultado.get('reporte_path', 'N/A')
-                
-                logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
-                logger.info(f"[FIN] Reporte generado en: {reporte_path}")
-                
-                # Obtener IDs de casos procesados y con error para el resumen
-                casos_procesados_ids = []
-                casos_error_ids = []
-                casos_pendientes_ids = []
-                if hasattr(service, 'casos_procesados'):
-                    for item in service.casos_procesados:
-                        caso = item.get('caso', {})
-                        case_id = caso.get('sp_documentoid', 'N/A')
-                        casos_procesados_ids.append(case_id)
-                if hasattr(service, 'casos_error'):
-                    for item in service.casos_error:
-                        caso = item.get('caso', {})
-                        case_id = caso.get('sp_documentoid', 'N/A')
-                        casos_error_ids.append(case_id)
-                if hasattr(service, 'casos_pendientes'):
-                    for item in service.casos_pendientes:
-                        caso = item.get('caso', {})
-                        case_id = caso.get('sp_documentoid', 'N/A')
-                        casos_pendientes_ids.append(case_id)
-                
-                if casos_procesados_ids:
-                    logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
-                if casos_error_ids:
-                    logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
-                if casos_pendientes_ids:
-                    logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
-
+            # Validar franja horaria ANTES de cualquier acción
+            logger.info("Validando franja horaria y día hábil...")
+            if not service._validar_franja_horaria_tipo("CopiasOficiales"):
+                logger.info("Proceso no ejecutado: fuera de franja horaria o día no hábil")
+                resultado = {
+                    "status": "skipped",
+                    "message": "Proceso no ejecutado: fuera de franja horaria o día no hábil",
+                    "casos_procesados": 0,
+                    "casos_error": 0,
+                    "casos_pendientes": 0
+                }
                 if result_var:
                     SetVar(result_var, resultado)
-            finally:
-                # Eliminar lock siempre, incluso si hay error
-                logger.info("Eliminando lock...")
-                service._eliminar_lock("CopiasOficiales")
+                # Terminar el proceso silenciosamente sin hacer nada más
+                logger.info("[FIN] Proceso finalizado sin ejecución (fuera de franja horaria)")
+            else:
+                # Verificar y crear lock
+                logger.info("Verificando lock para procesar_copias_oficiales...")
+                if not service._crear_lock("CopiasOficiales"):
+                    logger.warning("El bot ya está ejecutándose. Esperando a que termine...")
+                    # Esperar hasta que el lock se libere (máximo 24 horas)
+                    import time
+                    max_espera = 86400  # 24 horas en segundos
+                    tiempo_inicio = time.time()
+                    while service._obtener_ruta_lock("CopiasOficiales").exists():
+                        if time.time() - tiempo_inicio > max_espera:
+                            logger.error("Timeout esperando lock. El proceso anterior puede estar bloqueado.")
+                            raise RuntimeError("No se pudo obtener lock después de 24 horas")
+                        time.sleep(5)  # Esperar 5 segundos antes de verificar nuevamente
+                    logger.info("Lock liberado. Creando nuevo lock...")
+                    if not service._crear_lock("CopiasOficiales"):
+                        raise RuntimeError("No se pudo crear lock después de esperar")
+                
+                try:
+                    # Enviar notificación de inicio
+                    logger.info("Enviando notificación de inicio...")
+                    service._enviar_notificacion_inicio("CopiasOficiales")
+                    
+                    logger.info("Ejecutando procesar_oficiales()...")
+                    resultado = service.procesar_oficiales()
+
+                    casos_procesados = resultado.get('casos_procesados', 0)
+                    casos_error = resultado.get('casos_error', 0)
+                    casos_pendientes = resultado.get('casos_pendientes', 0)
+                    reporte_path = resultado.get('reporte_path', 'N/A')
+                    
+                    logger.info(f"[FIN] Procesamiento completado: {casos_procesados} casos procesados, {casos_error} errores, {casos_pendientes} pendientes")
+                    logger.info(f"[FIN] Reporte generado en: {reporte_path}")
+                    
+                    # Obtener IDs de casos procesados y con error para el resumen
+                    casos_procesados_ids = []
+                    casos_error_ids = []
+                    casos_pendientes_ids = []
+                    if hasattr(service, 'casos_procesados'):
+                        for item in service.casos_procesados:
+                            caso = item.get('caso', {})
+                            case_id = caso.get('sp_documentoid', 'N/A')
+                            casos_procesados_ids.append(case_id)
+                    if hasattr(service, 'casos_error'):
+                        for item in service.casos_error:
+                            caso = item.get('caso', {})
+                            case_id = caso.get('sp_documentoid', 'N/A')
+                            casos_error_ids.append(case_id)
+                    if hasattr(service, 'casos_pendientes'):
+                        for item in service.casos_pendientes:
+                            caso = item.get('caso', {})
+                            case_id = caso.get('sp_documentoid', 'N/A')
+                            casos_pendientes_ids.append(case_id)
+                    
+                    if casos_procesados_ids:
+                        logger.info(f"[FIN] Casos procesados exitosamente (IDs): {', '.join(casos_procesados_ids)}")
+                    if casos_error_ids:
+                        logger.warning(f"[FIN] Casos con error (IDs): {', '.join(casos_error_ids)}")
+                    if casos_pendientes_ids:
+                        logger.warning(f"[FIN] Casos pendientes (IDs): {', '.join(casos_pendientes_ids)}")
+
+                    if result_var:
+                        SetVar(result_var, resultado)
+                finally:
+                    # Eliminar lock siempre, incluso si hay error
+                    logger.info("Eliminando lock...")
+                    service._eliminar_lock("CopiasOficiales")
 
         except Exception as e:
             error_msg = f"Error al procesar copias oficiales: {str(e)}"
