@@ -1,7 +1,9 @@
 """Servicio de orquestación para expedición de copias."""
 import os
+import re
 import tempfile
 import time
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union, Tuple
@@ -1414,17 +1416,24 @@ class ExpedicionService:
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
         
-        email_creador = self._obtener_email_creador(caso)
+        # Para COPIAS OFICIALES, siempre usar emailResponsable del config
+        copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+        email_responsable = copias_oficiales_config.get("emailResponsable", "")
         
-        self.logger.info(f"[ONEDRIVE] Enviando email a: {email_creador}")
+        if not email_responsable or not self._validar_email(email_responsable):
+            error_msg = f"[CASO {case_id}] emailResponsable no está configurado o no es válido para CopiasOficiales. Valor: '{email_responsable}'"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        self.logger.info(f"[CASO {case_id}] Enviando email a emailResponsable: {email_responsable}")
         # Enviar el email
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
             asunto=asunto_procesado,
             cuerpo=cuerpo_con_firma,
-            destinatarios=self._obtener_destinatarios_por_modo([email_creador])
+            destinatarios=self._obtener_destinatarios_por_modo([email_responsable])
         )
-        self.logger.info(f"[ONEDRIVE] Email enviado exitosamente")
+        self.logger.info(f"[CASO {case_id}] Email enviado exitosamente a: {email_responsable}")
         
         # Esperar un momento para que el email se guarde en Sent Items
         time.sleep(2)
@@ -1720,16 +1729,112 @@ class ExpedicionService:
             or ""
         )
 
-    def _obtener_email_creador(self, caso: Dict[str, Any]) -> str:
-        """Obtiene el email del creador/dueño del caso desde el CRM."""
-        # Para entidades oficiales, se usa el ownerid (dueño del caso)
-        owner_id = caso.get("_ownerid_value", "") or caso.get("_createdby_value", "")
-        if not owner_id:
+    def _validar_email(self, email: str) -> bool:
+        """
+        Valida si una cadena es un email válido.
+        
+        Args:
+            email: Cadena a validar
+            
+        Returns:
+            True si es un email válido, False en caso contrario
+        """
+        if not email or not isinstance(email, str):
+            return False
+        
+        # Patrón básico de validación de email
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return bool(re.match(pattern, email.strip()))
+    
+    def _obtener_email_usuario_crm(self, user_id: str) -> str:
+        """
+        Consulta el email de un usuario en CRM usando su GUID.
+        
+        Args:
+            user_id: GUID del usuario en CRM
+            
+        Returns:
+            Email del usuario o cadena vacía si no se encuentra
+        """
+        if not user_id:
+            self.logger.debug("[CRM] user_id vacío, no se puede consultar email")
             return ""
         
-        # En una implementación real, habría que consultar el CRM para obtener el email del usuario
-        # Por ahora retornamos el ID como placeholder
-        return owner_id
+        # Validar que user_id no sea un email (para evitar consultas innecesarias)
+        if self._validar_email(user_id):
+            self.logger.debug(f"[CRM] user_id es un email válido, retornando directamente: {user_id}")
+            return user_id
+        
+        try:
+            # Consultar la entidad systemusers en Dynamics 365
+            # Formato: /systemusers(guid) - OData acepta GUIDs con o sin llaves
+            # Remover llaves si existen para usar formato estándar
+            guid_formateado = user_id.strip().strip("{}")
+            
+            endpoint = f"/systemusers({guid_formateado})"
+            params = {
+                "$select": "internalemailaddress,domainname"
+            }
+            
+            self.logger.debug(f"[CRM] Consultando email para usuario {user_id} en endpoint: {endpoint}")
+            response = self.crm_client.get(endpoint, params=params)
+            
+            # Prioridad: internalemailaddress, luego domainname
+            email = response.get("internalemailaddress", "") or response.get("domainname", "")
+            
+            if email and self._validar_email(email):
+                self.logger.info(f"[CRM] Email obtenido para usuario {user_id}: {email}")
+                return email
+            else:
+                self.logger.warning(f"[CRM] Email no válido o no encontrado para usuario {user_id}. Respuesta: {email}")
+                return ""
+                
+        except requests.HTTPError as e:
+            # Si el usuario no existe (404), no es un error crítico
+            if e.response and e.response.status_code == 404:
+                self.logger.warning(f"[CRM] Usuario {user_id} no encontrado en CRM (404)")
+            else:
+                self.logger.warning(f"[CRM] Error HTTP consultando email de usuario {user_id}: {e}")
+            return ""
+        except Exception as e:
+            self.logger.warning(f"[CRM] Error consultando email de usuario {user_id}: {e}")
+            return ""
+    
+    def _obtener_email_creador(self, caso: Dict[str, Any]) -> str:
+        """
+        Obtiene el email del creador/dueño del caso desde el CRM.
+        
+        Prioridad:
+        1. invt_correoelectronico (email del destinatario del caso)
+        2. Email del owner/creador consultado desde CRM
+        
+        Args:
+            caso: Diccionario con información del caso
+            
+        Returns:
+            Email válido o cadena vacía si no se encuentra
+        """
+        case_id = caso.get("sp_documentoid", "N/A")
+        
+        # Primera opción: usar invt_correoelectronico (email del destinatario del caso)
+        email_destinatario = caso.get("invt_correoelectronico", "")
+        if email_destinatario and self._validar_email(email_destinatario):
+            self.logger.info(f"[CASO {case_id}] Usando invt_correoelectronico: {email_destinatario}")
+            return email_destinatario
+        
+        # Segunda opción: consultar email del owner/creador desde CRM
+        owner_id = caso.get("_ownerid_value", "") or caso.get("_createdby_value", "")
+        if owner_id:
+            email_usuario = self._obtener_email_usuario_crm(owner_id)
+            if email_usuario:
+                self.logger.info(f"[CASO {case_id}] Usando email del owner/creador: {email_usuario}")
+                return email_usuario
+            else:
+                self.logger.warning(f"[CASO {case_id}] No se pudo obtener email del owner/creador (ID: {owner_id})")
+        
+        # Si no se encontró ningún email válido
+        self.logger.warning(f"[CASO {case_id}] No se encontró email válido para el creador/dueño del caso")
+        return ""
 
     def _obtener_tipo_documento(self, documento: Dict[str, Any]) -> str:
         """Obtiene el tipo de documento de los metadatos."""
