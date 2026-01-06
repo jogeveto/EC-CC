@@ -18,6 +18,7 @@ from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
 from ExpedicionCopias.core.time_validator import TimeValidator
 from ExpedicionCopias.core.non_critical_rules_validator import NonCriticalRulesValidator
 from ExpedicionCopias.core.auth import Dynamics365Authenticator, AzureAuthenticator
+from ExpedicionCopias.services.db_service import ExpedicionCopiasDB
 
 
 class ExpedicionService:
@@ -1925,6 +1926,19 @@ class ExpedicionService:
         reporte_path = reportes_dir / f"reporte_expedicion_{timestamp}.xlsx"
         wb.save(str(reporte_path))
         
+        # Guardar datos en base de datos
+        self._guardar_reporte_en_bd(
+            codigo_asistente=codigo_asistente,
+            codigo_bot=codigo_bot,
+            usuario_red=usuario_red,
+            nombre_estacion=nombre_estacion,
+            id_proceso=id_proceso,
+            fecha_inicio=fecha_inicio,
+            hora_inicio=hora_inicio,
+            fecha_fin=fecha_fin,
+            hora_fin=hora_fin
+        )
+        
         return str(reporte_path)
 
     def _enviar_reporte_por_email(self, tipo: str, reporte_path: str, fecha_hora_inicio: datetime, fecha_hora_fin: datetime) -> None:
@@ -2028,3 +2042,148 @@ class ExpedicionService:
             except Exception:
                 pass
         return max_length
+
+    def _guardar_reporte_en_bd(
+        self,
+        codigo_asistente: str,
+        codigo_bot: str,
+        usuario_red: str,
+        nombre_estacion: str,
+        id_proceso: int,
+        fecha_inicio: str,
+        hora_inicio: str,
+        fecha_fin: str,
+        hora_fin: str
+    ) -> None:
+        """
+        Guarda los datos del reporte en la base de datos.
+        
+        Args:
+            codigo_asistente: Código del asistente
+            codigo_bot: Código del bot
+            usuario_red: Usuario de red del bot runner
+            nombre_estacion: Nombre de la estación del bot runner
+            id_proceso: ID del proceso (PID)
+            fecha_inicio: Fecha de inicio (formato YYYY-MM-DD)
+            hora_inicio: Hora de inicio (formato HH:MM:SS)
+            fecha_fin: Fecha de fin (formato YYYY-MM-DD)
+            hora_fin: Hora de fin (formato HH:MM:SS)
+        """
+        try:
+            # Verificar si hay configuración de BD
+            db_config = self.config.get("Database", {})
+            if not db_config:
+                self.logger.warning("Configuración de Database no encontrada. No se guardará reporte en BD.")
+                return
+            
+            # Verificar si hay password (debe venir desde rocketbot)
+            if not db_config.get("password"):
+                self.logger.warning("Password de Database no configurado (debe obtenerse desde rocketbot). No se guardará reporte en BD.")
+                return
+            
+            # Crear instancia de ExpedicionCopiasDB
+            db_service = ExpedicionCopiasDB(self.config)
+            
+            registros_insertados = 0
+            registros_fallidos = 0
+            
+            # Insertar casos exitosos
+            for item in self.casos_procesados:
+                caso = item.get("caso", {})
+                ticket_number = caso.get("sp_ticketnumber", "")
+                sp_name = caso.get("sp_name", "")
+                no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+                matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+                matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+                matriculas_display = ", ".join(matriculas) if matriculas else ""
+                
+                if db_service.insert_reporte_expedicion(
+                    codigo_asistente=codigo_asistente,
+                    codigo_bot=codigo_bot,
+                    usuario_red_bot_runner=usuario_red,
+                    nombre_estacion_bot_runner=nombre_estacion,
+                    id_proceso=id_proceso,
+                    no_radicado=no_radicado,
+                    matriculas=matriculas_display,
+                    estado_proceso="Exitoso",
+                    observacion="Procesado correctamente",
+                    fecha_inicio_ejecucion=fecha_inicio,
+                    hora_inicio_ejecucion=hora_inicio,
+                    fecha_fin_ejecucion=fecha_fin,
+                    hora_fin_ejecucion=hora_fin
+                ):
+                    registros_insertados += 1
+                else:
+                    registros_fallidos += 1
+            
+            # Insertar casos con error (No Exitosos)
+            for item in self.casos_error:
+                caso = item.get("caso", {})
+                ticket_number = caso.get("sp_ticketnumber", "")
+                sp_name = caso.get("sp_name", "")
+                no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+                matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+                matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+                matriculas_display = ", ".join(matriculas) if matriculas else ""
+                mensaje_error = item.get("mensaje", "")
+                
+                if db_service.insert_reporte_expedicion(
+                    codigo_asistente=codigo_asistente,
+                    codigo_bot=codigo_bot,
+                    usuario_red_bot_runner=usuario_red,
+                    nombre_estacion_bot_runner=nombre_estacion,
+                    id_proceso=id_proceso,
+                    no_radicado=no_radicado,
+                    matriculas=matriculas_display,
+                    estado_proceso="No Exitoso",
+                    observacion=mensaje_error,
+                    fecha_inicio_ejecucion=fecha_inicio,
+                    hora_inicio_ejecucion=hora_inicio,
+                    fecha_fin_ejecucion=fecha_fin,
+                    hora_fin_ejecucion=hora_fin
+                ):
+                    registros_insertados += 1
+                else:
+                    registros_fallidos += 1
+            
+            # Insertar casos pendientes
+            for item in self.casos_pendientes:
+                caso = item.get("caso", {})
+                ticket_number = caso.get("sp_ticketnumber", "")
+                sp_name = caso.get("sp_name", "")
+                no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+                matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
+                matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
+                matriculas_display = ", ".join(matriculas) if matriculas else ""
+                mensaje_pendiente = item.get("mensaje", "No procesado")
+                
+                if db_service.insert_reporte_expedicion(
+                    codigo_asistente=codigo_asistente,
+                    codigo_bot=codigo_bot,
+                    usuario_red_bot_runner=usuario_red,
+                    nombre_estacion_bot_runner=nombre_estacion,
+                    id_proceso=id_proceso,
+                    no_radicado=no_radicado,
+                    matriculas=matriculas_display,
+                    estado_proceso="Pendiente",
+                    observacion=mensaje_pendiente,
+                    fecha_inicio_ejecucion=fecha_inicio,
+                    hora_inicio_ejecucion=hora_inicio,
+                    fecha_fin_ejecucion=fecha_fin,
+                    hora_fin_ejecucion=hora_fin
+                ):
+                    registros_insertados += 1
+                else:
+                    registros_fallidos += 1
+            
+            # Cerrar conexión
+            db_service.close()
+            
+            if registros_insertados > 0:
+                self.logger.info(f"Reporte guardado en BD: {registros_insertados} registros insertados, {registros_fallidos} fallidos")
+            else:
+                self.logger.warning(f"No se insertaron registros en BD. Fallidos: {registros_fallidos}")
+                
+        except Exception as e:
+            # No afectar la generación del Excel si falla el guardado en BD
+            self.logger.error(f"Error guardando reporte en BD: {e}. El reporte Excel se generó correctamente.")

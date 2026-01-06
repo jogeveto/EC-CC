@@ -22,7 +22,8 @@
     "server": "localhost,1433",
     "database": "RPA_Automatizacion",
     "username": "sa",
-    "db_type": "sqlserver"
+    "db_type": "sqlserver",
+    "schema": "ExpedicionCopiasDbo"
   },
   "ReglasNegocio": {
     "Copias": {
