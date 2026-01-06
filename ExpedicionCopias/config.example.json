@@ -10,7 +10,7 @@
     "user_email": "TRYCORE@camaramedellin.com.co"
   },
   "DocuWare": {
-    "serverUrl": "https://sgd.camaracom.loc/",
+    "serverUrl": "https://sgd.camaracom.loc",
     "username": "usrbot",
     "organizationName": "Cámara de Comercio de Medellín para Antioquia",
     "platform": "DocuWare/Platform",
