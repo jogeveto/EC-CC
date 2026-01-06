@@ -1,9 +1,13 @@
 """Cliente para DocuWare API con búsqueda y descarga de documentos."""
+import os
+import shutil
+import tempfile
 import requests
 import re
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+from pypdf import PdfReader, PdfWriter
 
 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
 from shared.utils.logger import get_logger
@@ -434,6 +438,11 @@ class DocuWareClient:
         """
         self.logger.info(f"[DESCARGAR] Iniciando descarga de documento ID: {document_id} a ruta: {ruta}")
         
+        # Verificar si es un SOBRE (documento con múltiples secciones)
+        if self._es_sobre(documento):
+            self.logger.info(f"[DESCARGAR] Documento {document_id}: Detectado como SOBRE, unificando todas las secciones...")
+            return self._descargar_y_unificar_sobre(document_id, documento, ruta)
+        
         server_url = self.config['serverUrl']
         platform = self.config['platform']
         
@@ -567,3 +576,139 @@ class DocuWareClient:
                 if item is not None:
                     return str(item)
         return None
+
+    def _es_sobre(self, documento: Dict[str, Any]) -> bool:
+        """
+        Verifica si un documento es un SOBRE (tiene múltiples secciones).
+        
+        Args:
+            documento: Diccionario con metadatos del documento
+            
+        Returns:
+            True si el documento tiene más de una sección, False en caso contrario
+        """
+        section_count = self._obtener_campo(documento, "DWSECTIONCOUNT")
+        if section_count:
+            try:
+                return int(section_count) > 1
+            except (ValueError, TypeError):
+                return False
+        return False
+
+    def _descargar_y_unificar_sobre(self, document_id: str, documento: Dict[str, Any], ruta: str) -> str:
+        """
+        Descarga todas las secciones de un SOBRE y las unifica en un solo PDF.
+        
+        Args:
+            document_id: ID del documento
+            documento: Diccionario con metadatos del documento
+            ruta: Ruta donde guardar el archivo unificado
+            
+        Returns:
+            Ruta del archivo PDF unificado
+            
+        Raises:
+            Exception: Si no se pueden descargar o unificar las secciones
+        """
+        self.logger.info(f"[DESCARGAR] Documento {document_id}: Detectado SOBRE - Descargando y unificando todas las secciones...")
+        
+        server_url = self.config['serverUrl']
+        platform = self.config['platform']
+        
+        # Obtener todas las secciones del documento
+        url_sections = f"{server_url}/{platform}/FileCabinets/{self.file_cabinet_id}/Sections?docid={document_id}"
+        
+        try:
+            response = requests.get(url_sections, headers=self._get_headers(), verify=self.verify_ssl)
+            response.raise_for_status()
+            
+            data = response.json()
+            sections = data.get('Section', [])
+            
+            if not sections:
+                raise ValueError(f"No se encontraron secciones para el SOBRE {document_id}")
+            
+            self.logger.info(f"[DESCARGAR] Documento {document_id}: SOBRE tiene {len(sections)} sección(es) - Descargando...")
+            
+            # Crear directorio temporal para las secciones
+            temp_dir = tempfile.mkdtemp(prefix=f"sobre_{document_id}_")
+            secciones_descargadas = []
+            
+            try:
+                # Descargar cada sección
+                for idx, section in enumerate(sections, 1):
+                    section_id = section.get('Id')
+                    content_type = section.get('ContentType', 'application/pdf')
+                    
+                    self.logger.info(f"[DESCARGAR] Documento {document_id}: Descargando sección {idx}/{len(sections)}: {section_id}")
+                    
+                    url_data = f"{server_url}/{platform}/FileCabinets/{self.file_cabinet_id}/Sections/{section_id}/Data"
+                    
+                    try:
+                        response_data = requests.get(
+                            url_data, 
+                            headers=self._get_headers(), 
+                            stream=True, 
+                            verify=self.verify_ssl
+                        )
+                        response_data.raise_for_status()
+                        
+                        # Guardar sección temporalmente
+                        temp_file = os.path.join(temp_dir, f"seccion_{idx}_{section_id}.pdf")
+                        with open(temp_file, 'wb') as f:
+                            for chunk in response_data.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        
+                        secciones_descargadas.append(temp_file)
+                        file_size = os.path.getsize(temp_file)
+                        self.logger.info(f"[DESCARGAR] Documento {document_id}: Sección {idx} descargada: {file_size} bytes")
+                        
+                    except requests.exceptions.RequestException as e:
+                        self.logger.warning(f"[DESCARGAR] Documento {document_id}: Error descargando sección {idx}: {e}")
+                        # Continuar con las demás secciones
+                        continue
+                
+                if not secciones_descargadas:
+                    raise ValueError(f"No se pudo descargar ninguna sección del SOBRE {document_id}")
+                
+                # Unificar todas las secciones en un solo PDF
+                self.logger.info(f"[DESCARGAR] Documento {document_id}: Unificando {len(secciones_descargadas)} sección(es) en un solo PDF...")
+                
+                # Generar nombre del archivo final
+                content_type = "application/pdf"
+                filename = self._generar_nombre_archivo(documento, document_id, content_type)
+                file_path = Path(ruta) / filename
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Unificar PDFs usando pypdf
+                writer = PdfWriter()
+                
+                for seccion_path in secciones_descargadas:
+                    try:
+                        reader = PdfReader(seccion_path)
+                        for page in reader.pages:
+                            writer.add_page(page)
+                    except Exception as e:
+                        self.logger.warning(f"[DESCARGAR] Documento {document_id}: Error procesando sección {seccion_path}: {e}")
+                        continue
+                
+                # Guardar PDF unificado
+                with open(file_path, 'wb') as output_file:
+                    writer.write(output_file)
+                
+                file_size_mb = file_path.stat().st_size / (1024 * 1024)
+                self.logger.info(f"[DESCARGAR] Documento {document_id}: SOBRE unificado exitosamente - Archivo: {file_path}, Tamaño: {file_size_mb:.2f} MB")
+                
+                return str(file_path)
+                
+            finally:
+                # Limpiar archivos temporales
+                try:
+                    shutil.rmtree(temp_dir)
+                    self.logger.debug(f"[DESCARGAR] Documento {document_id}: Archivos temporales eliminados")
+                except Exception as e:
+                    self.logger.warning(f"[DESCARGAR] Documento {document_id}: Error eliminando archivos temporales: {e}")
+            
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"[DESCARGAR] Documento {document_id}: Error procesando SOBRE: {e}")
+            raise
