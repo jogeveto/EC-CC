@@ -1,6 +1,7 @@
 """Servicio de orquestación para expedición de copias."""
 import os
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
@@ -467,13 +468,46 @@ class ExpedicionService:
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
         
+        usuario_email = self.config.get("GraphAPI", {}).get("user_email", "")
+        
+        # Enviar el email
         self.graph_client.enviar_email(
-            usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
+            usuario_id=usuario_email,
             asunto=asunto_procesado,
             cuerpo=cuerpo_con_firma,
             destinatarios=self._obtener_destinatarios_por_modo([email_destino]),
             adjuntos=[pdf_unificado]
         )
+        
+        # Esperar un momento para que el email se guarde en Sent Items
+        time.sleep(2)
+        
+        # Consultar el email enviado desde Office 365 y formatearlo
+        try:
+            email_enviado = self.graph_client.obtener_email_enviado(
+                usuario_id=usuario_email,
+                asunto=asunto_procesado
+            )
+            
+            if email_enviado:
+                email_formateado = self.graph_client.formatear_email_legible(
+                    email_data=email_enviado,
+                    caso=caso
+                )
+                self.logger.info(f"[CASO {caso.get('sp_documentoid', 'N/A')}] Email consultado y formateado desde Office 365")
+                return email_formateado
+            else:
+                self.logger.warning(
+                    f"[CASO {caso.get('sp_documentoid', 'N/A')}] "
+                    f"No se pudo consultar el email desde Office 365. Usando cuerpo original como fallback."
+                )
+        except Exception as e:
+            self.logger.warning(
+                f"[CASO {caso.get('sp_documentoid', 'N/A')}] "
+                f"Error consultando email desde Office 365: {str(e)}. Usando cuerpo original como fallback."
+            )
+        
+        # Fallback: retornar el cuerpo original si no se pudo consultar el email
         return cuerpo_con_firma
 
     def _enviar_pdf_grande(
@@ -575,6 +609,7 @@ class ExpedicionService:
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
         
+        # Enviar el email
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
             asunto=asunto_procesado,
@@ -582,6 +617,35 @@ class ExpedicionService:
             destinatarios=self._obtener_destinatarios_por_modo([email_destino])
         )
         
+        # Esperar un momento para que el email se guarde en Sent Items
+        time.sleep(2)
+        
+        # Consultar el email enviado desde Office 365 y formatearlo
+        try:
+            email_enviado = self.graph_client.obtener_email_enviado(
+                usuario_id=usuario_email,
+                asunto=asunto_procesado
+            )
+            
+            if email_enviado:
+                email_formateado = self.graph_client.formatear_email_legible(
+                    email_data=email_enviado,
+                    caso=caso
+                )
+                self.logger.info(f"[CASO {case_id}] Email consultado y formateado desde Office 365")
+                return email_formateado
+            else:
+                self.logger.warning(
+                    f"[CASO {case_id}] "
+                    f"No se pudo consultar el email desde Office 365. Usando cuerpo original como fallback."
+                )
+        except Exception as e:
+            self.logger.warning(
+                f"[CASO {case_id}] "
+                f"Error consultando email desde Office 365: {str(e)}. Usando cuerpo original como fallback."
+            )
+        
+        # Fallback: retornar el cuerpo original si no se pudo consultar el email
         return cuerpo_con_firma
 
     def _enviar_email_sin_adjuntos(
@@ -1068,6 +1132,7 @@ class ExpedicionService:
         email_creador = self._obtener_email_creador(caso)
         
         self.logger.info(f"[ONEDRIVE] Enviando email a: {email_creador}")
+        # Enviar el email
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
             asunto=asunto_procesado,
@@ -1076,6 +1141,35 @@ class ExpedicionService:
         )
         self.logger.info(f"[ONEDRIVE] Email enviado exitosamente")
         
+        # Esperar un momento para que el email se guarde en Sent Items
+        time.sleep(2)
+        
+        # Consultar el email enviado desde Office 365 y formatearlo
+        try:
+            email_enviado = self.graph_client.obtener_email_enviado(
+                usuario_id=usuario_email,
+                asunto=asunto_procesado
+            )
+            
+            if email_enviado:
+                email_formateado = self.graph_client.formatear_email_legible(
+                    email_data=email_enviado,
+                    caso=caso
+                )
+                self.logger.info(f"[CASO {case_id}] Email consultado y formateado desde Office 365")
+                return email_formateado
+            else:
+                self.logger.warning(
+                    f"[CASO {case_id}] "
+                    f"No se pudo consultar el email desde Office 365. Usando cuerpo original como fallback."
+                )
+        except Exception as e:
+            self.logger.warning(
+                f"[CASO {case_id}] "
+                f"Error consultando email desde Office 365: {str(e)}. Usando cuerpo original como fallback."
+            )
+        
+        # Fallback: retornar el cuerpo original si no se pudo consultar el email
         return cuerpo_con_firma
 
     def _manejar_error_caso_oficial(self, caso: Dict[str, Any], error_msg: str) -> None:

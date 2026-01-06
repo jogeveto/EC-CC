@@ -1,8 +1,12 @@
 """Cliente HTTP base para Microsoft Graph API con manejo de errores."""
 import requests
 import time
+import re
 from pathlib import Path
+from datetime import datetime, timedelta
 from typing import Any, List, Dict, Optional
+from html import unescape
+from html.parser import HTMLParser
 
 from ExpedicionCopias.core.auth import AzureAuthenticator
 from shared.utils.logger import get_logger
@@ -597,3 +601,335 @@ class GraphClient:
                 return link.get("webUrl")
         
         raise ValueError("No se encontró enlace compartido para el item")
+
+    def obtener_email_enviado(
+        self,
+        usuario_id: str,
+        asunto: str,
+        minutos_ventana: int = 5,
+        max_intentos: int = 3,
+        espera_intento: int = 2
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Consulta la carpeta "Sent Items" de Office 365 para obtener un email enviado recientemente.
+        
+        Busca el email por asunto y fecha/hora de envío dentro de una ventana de tiempo.
+        
+        Args:
+            usuario_id: ID o email del usuario que envió el email
+            asunto: Asunto del email a buscar
+            minutos_ventana: Ventana de tiempo en minutos para buscar el email (default: 5)
+            max_intentos: Número máximo de intentos si no se encuentra el email (default: 3)
+            espera_intento: Segundos de espera entre intentos (default: 2)
+        
+        Returns:
+            Diccionario con la información completa del email o None si no se encuentra
+        """
+        endpoint = f"/users/{usuario_id}/mailFolders/sentItems/messages"
+        
+        # Calcular fecha límite (últimos N minutos)
+        fecha_limite = datetime.utcnow() - timedelta(minutes=minutos_ventana)
+        fecha_limite_str = fecha_limite.strftime("%Y-%m-%dT%H:%M:%SZ")
+        
+        # Intentar varias veces ya que puede haber latencia en la sincronización
+        for intento in range(1, max_intentos + 1):
+            try:
+                params = {
+                    "$filter": f"sentDateTime ge {fecha_limite_str}",
+                    "$select": "id,subject,sentDateTime,from,toRecipients,body,bodyPreview",
+                    "$orderby": "sentDateTime desc",
+                    "$top": 10
+                }
+                
+                response = self.get(endpoint, params=params)
+                messages = response.get("value", [])
+                
+                # Buscar el email que coincida con el asunto
+                for message in messages:
+                    message_subject = message.get("subject", "")
+                    if message_subject == asunto:
+                        message_id = message.get("id", "")
+                        if message_id:
+                            # Obtener el mensaje completo con body
+                            try:
+                                message_endpoint = f"/users/{usuario_id}/messages/{message_id}"
+                                message_params = {
+                                    "$select": "id,subject,sentDateTime,from,toRecipients,body,bodyPreview,uniqueBody"
+                                }
+                                message_completo = self.get(message_endpoint, params=message_params)
+                                
+                                # Si el body está en HTML, intentar usar bodyPreview o uniqueBody que son texto plano
+                                body_info = message_completo.get("body", {})
+                                if body_info.get("contentType") == "HTML":
+                                    # Preferir uniqueBody (texto completo) sobre bodyPreview (puede estar truncado)
+                                    unique_body = message_completo.get("uniqueBody", {})
+                                    if unique_body.get("contentType") == "Text" and unique_body.get("content"):
+                                        message_completo["body"] = unique_body
+                                    else:
+                                        # Usar bodyPreview como fallback (texto plano pero puede estar truncado)
+                                        body_preview = message_completo.get("bodyPreview", "")
+                                        if body_preview:
+                                            message_completo["body"] = {
+                                                "contentType": "Text",
+                                                "content": body_preview
+                                            }
+                                
+                                self.logger.info(
+                                    f"[EMAIL] Email encontrado en Sent Items (intento {intento}/{max_intentos}): "
+                                    f"Asunto: {asunto[:50]}..."
+                                )
+                                return message_completo
+                            except Exception as e:
+                                self.logger.warning(
+                                    f"[EMAIL] Error obteniendo body completo del mensaje: {str(e)}. "
+                                    f"Usando datos básicos del mensaje."
+                                )
+                                return message
+                        return message
+                
+                # Si no se encontró en este intento y hay más intentos, esperar
+                if intento < max_intentos:
+                    self.logger.debug(
+                        f"[EMAIL] Email no encontrado en intento {intento}/{max_intentos}. "
+                        f"Esperando {espera_intento}s antes del siguiente intento..."
+                    )
+                    time.sleep(espera_intento)
+                else:
+                    self.logger.warning(
+                        f"[EMAIL] Email no encontrado después de {max_intentos} intentos. "
+                        f"Asunto buscado: {asunto[:50]}..."
+                    )
+                    
+            except Exception as e:
+                self.logger.warning(
+                    f"[EMAIL] Error consultando Sent Items (intento {intento}/{max_intentos}): {str(e)}"
+                )
+                if intento < max_intentos:
+                    time.sleep(espera_intento)
+                else:
+                    self.logger.error(f"[EMAIL] No se pudo consultar el email después de {max_intentos} intentos")
+        
+        return None
+
+    def formatear_email_legible(
+        self,
+        email_data: Dict[str, Any],
+        caso: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Formatea un email obtenido de Graph API al formato legible especificado.
+        
+        El formato es similar a cuando se copia un email desde un cliente de email:
+        - Encabezado con asunto
+        - Remitente con nombre y email, fecha y hora
+        - Destinatario
+        - Número de PQRS (si está disponible en caso)
+        - Cuerpo del email formateado
+        
+        Args:
+            email_data: Diccionario con la información del email de Graph API
+            caso: Diccionario opcional con información del caso (para incluir número PQRS)
+        
+        Returns:
+            String con el email formateado en formato legible
+        """
+        # Extraer información del email
+        asunto = email_data.get("subject", "")
+        sent_datetime_str = email_data.get("sentDateTime", "")
+        from_info = email_data.get("from", {}).get("emailAddress", {})
+        to_recipients = email_data.get("toRecipients", [])
+        body = email_data.get("body", {})
+        body_content = body.get("content", "")
+        body_type = body.get("contentType", "HTML")
+        
+        # Usar el body directamente si está en formato texto
+        # Si está en HTML, ya debería haber sido reemplazado por uniqueBody o bodyPreview en obtener_email_enviado
+        if body_type == "Text":
+            cuerpo_texto = body_content
+        else:
+            # Si aún está en HTML (no debería pasar, pero por seguridad), convertir
+            cuerpo_texto = self._html_a_texto(body_content) if body_content else ""
+        
+        # Formatear remitente
+        from_name = from_info.get("name", "")
+        from_email = from_info.get("address", "")
+        remitente = f"{from_name} <{from_email}>" if from_name else from_email
+        
+        # Formatear fecha y hora
+        fecha_hora = self._formatear_fecha_hora_email(sent_datetime_str)
+        
+        # Formatear destinatarios
+        destinatarios = []
+        for recipient in to_recipients:
+            recipient_info = recipient.get("emailAddress", {})
+            recipient_name = recipient_info.get("name", "")
+            recipient_email = recipient_info.get("address", "")
+            if recipient_name:
+                destinatarios.append(f"{recipient_name} <{recipient_email}>")
+            else:
+                destinatarios.append(recipient_email)
+        destinatarios_str = ", ".join(destinatarios)
+        
+        # Extraer número de PQRS del caso si está disponible
+        numero_pqrs = ""
+        if caso:
+            numero_pqrs = caso.get("sp_name", "") or caso.get("sp_ticketnumber", "")
+        
+        # Construir el formato legible
+        lineas = []
+        
+        # Encabezado con asunto
+        lineas.append(asunto)
+        lineas.append("")
+        
+        # Remitente y fecha
+        lineas.append(f"{remitente}\t{fecha_hora}")
+        
+        # Destinatario
+        if destinatarios_str:
+            lineas.append(f"Para: {destinatarios_str}")
+        
+        # Número de PQRS si está disponible
+        if numero_pqrs:
+            lineas.append(numero_pqrs)
+            lineas.append("")
+        
+        # Cuerpo del email
+        lineas.append("")
+        lineas.append(cuerpo_texto.strip())
+        
+        return "\n".join(lineas)
+
+    def _formatear_fecha_hora_email(self, fecha_iso: str) -> str:
+        """
+        Formatea una fecha ISO a formato legible en español.
+        
+        Args:
+            fecha_iso: Fecha en formato ISO (ej: "2026-01-05T22:18:00Z")
+        
+        Returns:
+            Fecha formateada (ej: "5 de enero de 2026 a las 22:18")
+        """
+        if not fecha_iso:
+            return ""
+        
+        try:
+            # Parsear fecha ISO (puede tener o no Z al final)
+            if fecha_iso.endswith("Z"):
+                fecha_iso = fecha_iso[:-1] + "+00:00"
+            
+            # Intentar diferentes formatos
+            formatos = [
+                "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S.%f%z",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S.%f"
+            ]
+            
+            fecha_obj = None
+            for formato in formatos:
+                try:
+                    fecha_obj = datetime.strptime(fecha_iso, formato)
+                    break
+                except ValueError:
+                    continue
+            
+            if not fecha_obj:
+                # Fallback: intentar parsear con dateutil si está disponible
+                try:
+                    from dateutil import parser
+                    fecha_obj = parser.parse(fecha_iso)
+                except ImportError:
+                    self.logger.warning(f"[EMAIL] No se pudo parsear la fecha: {fecha_iso}")
+                    return fecha_iso
+            
+            # Nombres de meses en español
+            meses = [
+                "enero", "febrero", "marzo", "abril", "mayo", "junio",
+                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+            ]
+            
+            dia = fecha_obj.day
+            mes = meses[fecha_obj.month - 1]
+            año = fecha_obj.year
+            hora = fecha_obj.hour
+            minuto = fecha_obj.minute
+            
+            return f"{dia} de {mes} de {año} a las {hora:02d}:{minuto:02d}"
+            
+        except Exception as e:
+            self.logger.warning(f"[EMAIL] Error formateando fecha {fecha_iso}: {str(e)}")
+            return fecha_iso
+
+    def _html_a_texto(self, html: str) -> str:
+        """
+        Convierte HTML a texto plano preservando saltos de línea y estructura básica.
+        
+        Args:
+            html: String con contenido HTML
+        
+        Returns:
+            String con texto plano
+        """
+        if not html:
+            return ""
+        
+        # Crear un parser HTML simple
+        class HTMLToTextParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.text = []
+                self.skip = False
+            
+            def handle_data(self, data):
+                if not self.skip:
+                    self.text.append(data)
+            
+            def handle_starttag(self, tag, attrs):
+                if tag in ['br', 'p', 'div', 'li']:
+                    self.text.append('\n')
+                elif tag in ['script', 'style']:
+                    self.skip = True
+            
+            def handle_endtag(self, tag):
+                if tag in ['p', 'div', 'li', 'tr']:
+                    self.text.append('\n')
+                elif tag in ['script', 'style']:
+                    self.skip = False
+            
+            def get_text(self):
+                return ''.join(self.text)
+        
+        try:
+            # Decodificar entidades HTML
+            html_decodificado = unescape(html)
+            
+            # Remover scripts y estilos
+            html_decodificado = re.sub(r'<script[^>]*>.*?</script>', '', html_decodificado, flags=re.DOTALL | re.IGNORECASE)
+            html_decodificado = re.sub(r'<style[^>]*>.*?</style>', '', html_decodificado, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Convertir <br> y <br/> a saltos de línea
+            html_decodificado = re.sub(r'<br\s*/?>', '\n', html_decodificado, flags=re.IGNORECASE)
+            
+            # Convertir <p> y </p> a saltos de línea
+            html_decodificado = re.sub(r'</?p[^>]*>', '\n', html_decodificado, flags=re.IGNORECASE)
+            
+            # Convertir <div> y </div> a saltos de línea
+            html_decodificado = re.sub(r'</?div[^>]*>', '\n', html_decodificado, flags=re.IGNORECASE)
+            
+            # Parsear con HTMLParser
+            parser = HTMLToTextParser()
+            parser.feed(html_decodificado)
+            texto = parser.get_text()
+            
+            # Limpiar espacios en blanco múltiples y saltos de línea
+            texto = re.sub(r'[ \t]+', ' ', texto)
+            texto = re.sub(r'\n\s*\n\s*\n+', '\n\n', texto)
+            
+            return texto.strip()
+            
+        except Exception as e:
+            self.logger.warning(f"[EMAIL] Error convirtiendo HTML a texto: {str(e)}")
+            # Fallback: remover tags HTML básicos
+            texto_simple = re.sub(r'<[^>]+>', '', html)
+            return unescape(texto_simple).strip()
