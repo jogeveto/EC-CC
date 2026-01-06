@@ -163,6 +163,24 @@ class GraphClient:
             return response.json()
         return None
 
+    def delete(self, endpoint: str) -> None:
+        """
+        Realiza una petición DELETE a Graph API.
+
+        Args:
+            endpoint: Endpoint relativo (ej: "/users/{id}/drive/items/{item_id}")
+
+        Raises:
+            requests.HTTPError: Si la petición falla
+        """
+        url = f"{self.BASE_URL}{endpoint}"
+        response = requests.delete(
+            url,
+            headers=self._get_headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+
     def enviar_email(
         self,
         usuario_id: str,
@@ -303,6 +321,12 @@ class GraphClient:
         carpeta_destino_clean = carpeta_destino.rstrip("/")
         carpeta_destino_path = f"{carpeta_destino_clean}/{carpeta_local.name}"
         
+        # Verificar si la carpeta destino ya existe y eliminarla si es necesario
+        self.logger.info(f"[ONEDRIVE] Verificando si la carpeta destino ya existe: {carpeta_destino_path}")
+        carpeta_eliminada = self.eliminar_carpeta_onedrive(carpeta_destino_path, usuario_id)
+        if carpeta_eliminada:
+            self.logger.info(f"[ONEDRIVE] Carpeta existente eliminada antes de subir nuevos documentos: {carpeta_destino_path}")
+        
         # Obtener lista de archivos antes de empezar
         archivos = [item for item in carpeta_local.rglob("*") if item.is_file()]
         total_archivos = len(archivos)
@@ -412,6 +436,55 @@ class GraphClient:
         """Obtiene información de una carpeta en OneDrive."""
         endpoint = f"/users/{usuario_id}/drive/root:{ruta_carpeta}"
         return self.get(endpoint)
+
+    def eliminar_carpeta_onedrive(self, ruta_carpeta: str, usuario_id: str) -> bool:
+        """
+        Elimina una carpeta en OneDrive por su ruta.
+        
+        Args:
+            ruta_carpeta: Ruta de la carpeta en OneDrive
+            usuario_id: ID o email del usuario propietario
+        
+        Returns:
+            True si se eliminó exitosamente, False si no existía
+        """
+        try:
+            # Obtener información de la carpeta para obtener su ID
+            info_carpeta = self._obtener_info_carpeta(ruta_carpeta, usuario_id)
+            carpeta_id = info_carpeta.get("id", "")
+            
+            if not carpeta_id:
+                self.logger.warning(f"[ONEDRIVE] No se pudo obtener ID de la carpeta: {ruta_carpeta}")
+                return False
+            
+            # Eliminar la carpeta usando su ID
+            endpoint = f"/users/{usuario_id}/drive/items/{carpeta_id}"
+            self.delete(endpoint)
+            
+            # Limpiar el cache de carpetas creadas
+            # Remover la carpeta y todas sus subcarpetas del cache
+            carpetas_a_remover = [
+                carpeta for carpeta in self._carpetas_creadas 
+                if carpeta == ruta_carpeta or carpeta.startswith(f"{ruta_carpeta}/")
+            ]
+            for carpeta in carpetas_a_remover:
+                self._carpetas_creadas.discard(carpeta)
+            
+            self.logger.info(f"[ONEDRIVE] Carpeta eliminada exitosamente: {ruta_carpeta}")
+            return True
+            
+        except requests.HTTPError as e:
+            # Si la carpeta no existe (404), no es un error
+            if e.response and e.response.status_code == 404:
+                self.logger.info(f"[ONEDRIVE] La carpeta no existe, no es necesario eliminarla: {ruta_carpeta}")
+                return False
+            # Para otros errores HTTP, relanzar la excepción
+            self.logger.error(f"[ONEDRIVE] Error eliminando carpeta {ruta_carpeta}: {e}")
+            raise
+        except Exception as e:
+            # Para otros errores (ej: no se pudo obtener info), registrar y retornar False
+            self.logger.warning(f"[ONEDRIVE] No se pudo eliminar la carpeta {ruta_carpeta}: {e}")
+            return False
 
     def compartir_carpeta(self, item_id: str, usuario_id: str, tipo_link: str = "view") -> Dict[str, Any]:
         """
