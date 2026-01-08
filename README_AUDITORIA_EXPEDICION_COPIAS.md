@@ -27,11 +27,9 @@ Este informe presenta los resultados de la auditoría completa del módulo Exped
 - Puede generar confusión sobre qué campo usar
 
 **Recomendación**: 
-- **NO CAMBIAR** - La inconsistencia parece intencional para manejar diferentes escenarios:
+- **CAMBIAR** - Todo lo que diga sp_ticketnumber, diferente a las consultas:
   - `sp_name`: Número de radicado principal
-  - `sp_ticketnumber`: Número de ticket alternativo
-- **SÍ DOCUMENTAR**: Crear constantes o documentación clara sobre cuándo usar cada campo
-- **SÍ ESTANDARIZAR**: En reportes, usar siempre la misma lógica de combinación: `f"{ticket_number} ({sp_name})" if sp_name else ticket_number`
+  - `sp_ticketnumber`: Número de ticket alternativo no debe ser tenido en cuenta para evitar ambiguedades
 
 ### 1.2. Uso Inconsistente de Campos de Email
 
@@ -48,10 +46,10 @@ Este informe presenta los resultados de la auditoría completa del módulo Exped
 - Puede causar que emails se envíen a destinatarios incorrectos
 
 **Recomendación**:
+- **Diferenciar procesos** - El proceso de particulares el email del envio de la respuesta con el adjunto o link en la plantilla seleccionada es sp_correoelectronico, mientras que en oficiales el email destino con el correo del link es el emailResponsable configurado en el archivo de configuracion.
 - **SÍ CAMBIAR** - Estandarizar el uso de campos de email:
-  - Para envío a cliente: Usar siempre `invt_correoelectronico` (email del destinatario del caso)
-  - Para envío a responsable/creador: Usar `_obtener_email_creador()` que ya tiene la lógica correcta
-  - Documentar claramente la diferencia entre `sp_correoelectronico` (email del caso) e `invt_correoelectronico` (email del destinatario)
+  - Para envío a cliente: usar el diferencial del email por cada proceso.
+  - Los otros campo email noson tenidos en cuenta.
 
 ### 1.3. Inconsistencia en Mapeo de Variables de Plantillas
 
@@ -72,21 +70,6 @@ Este informe presenta los resultados de la auditoría completa del módulo Exped
   - Crear lista de constantes con los nombres de variables permitidas
   - Validar que todas las variantes se reemplacen
 
-### 1.4. Uso Inconsistente de Campos de Fecha
-
-**Problema Identificado**: Se usa principalmente `createdon` para fechas, pero hay otros campos disponibles que no se utilizan consistentemente.
-
-**Evidencia**:
-- En `expedicion_service.py` línea 1629: Se usa `createdon` para fecha de ingreso
-- En `crm_client.py` línea 35: Existen campos `sp_fechadecreacinreal`, `sp_fechadevencimiento` que no se usan
-- En `expedicion_service.py` línea 244: Se ordena por `createdon desc` en consultas
-
-**Impacto**:
-- Bajo - El uso de `createdon` parece consistente y adecuado
-
-**Recomendación**:
-- **NO CAMBIAR** - El uso de `createdon` es apropiado y consistente
-- **SÍ DOCUMENTAR**: Aclarar que `createdon` es el campo estándar para fecha de creación del caso
 
 ### 1.5. Inconsistencia en Nombres de Configuración
 
@@ -401,58 +384,14 @@ Esta tabla identifica strings literales que deberían estar en constantes o arch
 
 ## 4. Recomendaciones Generales
 
-### 4.1. Prioridad Alta
-
-1. **Estandarizar uso de campos de email**:
-   - Crear método único `_obtener_email_destinatario()` que use siempre `invt_correoelectronico`
-   - Documentar claramente la diferencia entre campos de email
-   - Actualizar todos los lugares donde se obtiene email para usar el método estandarizado
-
-2. **Corregir typo en configuración**:
-   - Cambiar `UsuaroRedBR` → `UsuarioRedBR` en `config.example.json` y código
-
-3. **Estandarizar nombres de variables en plantillas**:
-   - Crear archivo de constantes con nombres de variables permitidas
-   - Validar que todas las variantes se reemplacen correctamente
-
-### 4.2. Prioridad Media
-
 1. **Crear archivo de constantes**:
    - Mover todos los strings hardcodeados identificados a un archivo `constants.py`
    - Organizar por categorías: mensajes, rutas, estados, tipos, etc.
 
-2. **Estandarizar convención de nombres de configuración**:
-   - Usar camelCase para todas las claves
-   - Documentar la convención en `config.example.json`
-
-3. **Documentar uso de campos de radicado**:
-   - Crear documentación clara sobre cuándo usar `sp_name` vs `sp_ticketnumber`
-   - Estandarizar la lógica de combinación en reportes
-
-### 4.3. Prioridad Baja
-
-1. **Mejorar manejo de errores**:
+2. **Mejorar manejo de errores**:
    - Centralizar mensajes de error en constantes
    - Hacer mensajes más descriptivos y consistentes
-
-2. **Optimizar consultas a CRM**:
-   - Revisar si todos los campos en `ALL_FIELDS` son necesarios
-   - Considerar paginación más eficiente
 
 3. **Mejorar logging**:
    - Estandarizar formato de mensajes de log
    - Agregar más contexto en mensajes de error
-
-## 5. Conclusión
-
-El módulo ExpedicionCopias está bien estructurado, pero presenta algunas inconsistencias que pueden mejorarse. Las principales áreas de mejora son:
-
-- **Estandarización de campos**: Especialmente en el uso de campos de email y radicado
-- **Centralización de strings**: Muchos strings deberían estar en constantes o configuración
-- **Documentación**: Mejorar documentación sobre el uso de campos y convenciones
-
-**Total de inconsistencias identificadas**: 5  
-**Total de variables externas mapeadas**: 150+  
-**Total de strings hardcodeados identificados**: 100+
-
-Se recomienda abordar las inconsistencias de prioridad alta primero, ya que tienen mayor impacto en la funcionalidad y mantenibilidad del módulo.
