@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 
 from ExpedicionCopias.core.auth import AzureAuthenticator
 from shared.utils.logger import get_logger
+from ExpedicionCopias.core.constants import MESES_ESPAÑOL, MSG_COMPARTIR_ARCHIVO
 
 
 class GraphClient:
@@ -587,7 +588,7 @@ class GraphClient:
             "roles": roles,
             "requireSignIn": True,
             "sendInvitation": False,  # No enviar email automático de SharePoint, usamos nuestro propio email
-            "message": "Se ha compartido un archivo con usted. Puede acceder a través del enlace en este correo."
+            "message": MSG_COMPARTIR_ARCHIVO
         }
         
         try:
@@ -846,7 +847,7 @@ class GraphClient:
         # Extraer número de PQRS del caso si está disponible
         numero_pqrs = ""
         if caso:
-            numero_pqrs = caso.get("sp_name", "") or caso.get("sp_ticketnumber", "")
+            numero_pqrs = caso.get("sp_name", "") or ""
         
         # Construir el formato legible
         lineas = []
@@ -917,13 +918,8 @@ class GraphClient:
                     return fecha_iso
             
             # Nombres de meses en español
-            meses = [
-                "enero", "febrero", "marzo", "abril", "mayo", "junio",
-                "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
-            ]
-            
             dia = fecha_obj.day
-            mes = meses[fecha_obj.month - 1]
+            mes = MESES_ESPAÑOL[fecha_obj.month - 1]
             año = fecha_obj.year
             hora = fecha_obj.hour
             minuto = fecha_obj.minute

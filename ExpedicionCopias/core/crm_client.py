@@ -3,6 +3,7 @@ import requests
 from typing import Any
 
 from ExpedicionCopias.core.auth import Dynamics365Authenticator
+from ExpedicionCopias.core.constants import RUTA_API, RUTA_DEFAULT_SCOPE, LIMITE_CONSULTA_CRM, ORDENAMIENTO_CRM, MSG_CRM_SIN_ACCESO
 
 
 class CasoNoEncontradoError(Exception):
@@ -66,8 +67,8 @@ class CRMClient:
             Token de acceso
         """
         if self._token is None:
-            resource_url = self.base_url.split('/api/')[0]
-            scope = f"{resource_url}/.default"
+            resource_url = self.base_url.split(RUTA_API)[0]
+            scope = f"{resource_url}{RUTA_DEFAULT_SCOPE}"
             
             if not scope.startswith("https://"):
                 raise ValueError(f"Scope inválido generado: {scope}")
@@ -212,7 +213,7 @@ class CRMClient:
             
             if "not a member of the organization" in error_message:
                 return (
-                    "\n  ⚠️  La aplicación no tiene acceso al ambiente de Dynamics 365.\n"
+                    f"\n  {MSG_CRM_SIN_ACCESO}\n"
                     "  Soluciones:\n"
                     "  1. Verifica que la aplicación tenga permisos API configurados en Azure AD\n"
                     "  2. Verifica que se hayan otorgado permisos de aplicación (Application permissions)\n"
@@ -240,8 +241,8 @@ class CRMClient:
         params = {
             "$filter": filtro,
             "$select": select_fields,
-            "$top": 5000,
-            "$orderby": "createdon desc"
+            "$top": LIMITE_CONSULTA_CRM,
+            "$orderby": ORDENAMIENTO_CRM
         }
         
         page = 1

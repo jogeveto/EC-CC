@@ -185,9 +185,9 @@
   },
   "Reportes": {
     "emailsAdministradores": ["john.velasquez@trycore.com.co"],
-    "CodigoAsistente": "R_CCMA_ExpedicionCopias",
-    "UsuaroRedBR": "usuario.red",
-    "NumeroMaquinaBR": "MAQUINA-001",
+    "codigoAsistente": "R_CCMA_ExpedicionCopias",
+    "usuarioRedBR": "usuario.red",
+    "numeroMaquinaBR": "MAQUINA-001",
     "PlantillaEmail": {
       "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Fin de ejecución",
       "cuerpo": "<html><body><p>Cordial saludo,</p><p>Se informa que el proceso de expedición de copías fue finalizdo el {fecha_fin}.</p><p>Ver, resultado del proceso:</p><p>[Reporte de gestión]</p><p>Muchas gracias.</p></body></html>"

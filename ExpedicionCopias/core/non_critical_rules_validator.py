@@ -1,6 +1,11 @@
 """Validador de reglas no críticas para expedición de copias."""
 import re
 from typing import Dict, Any, Optional, Tuple
+from ExpedicionCopias.core.constants import (
+    CAMPO_RADICADO_PRINCIPAL, CAMPO_EMAIL_CREADOR, CAMPO_MATRICULAS,
+    MSG_EMAIL_VACIO, MSG_EMAIL_INVALIDO, MSG_RADICADO_NO_EXTRAIDO,
+    MSG_MATRICULAS_NO_EXTRAIDAS, MSG_MATRICULAS_NO_VALIDAS
+)
 
 
 class NonCriticalRulesValidator:
@@ -45,43 +50,26 @@ class NonCriticalRulesValidator:
         # Regla 1: Validar formato de email (solo en modo PROD)
         modo = self.config.get("Globales", {}).get("modo", "PROD")
         if modo.upper() == "PROD":
-            email = caso.get("invt_correoelectronico", "").strip()
+            email = caso.get(CAMPO_EMAIL_CREADOR, "").strip()
             if not email:
-                return (
-                    False,
-                    f"El campo invt_correoelectronico está vacío. "
-                    f"Este es el email de respuesta final cuando mode=PROD."
-                )
+                return (False, MSG_EMAIL_VACIO)
             if not self._validar_formato_email(email):
-                return (
-                    False,
-                    f"El email invt_correoelectronico '{email}' no tiene un formato válido. "
-                    f"Este es el email de respuesta final cuando mode=PROD."
-                )
+                return (False, MSG_EMAIL_INVALIDO.format(email=email))
 
         # Regla 2: Validar presencia de número de radicado (sp_name)
-        sp_name = caso.get("sp_name", "").strip()
+        sp_name = caso.get(CAMPO_RADICADO_PRINCIPAL, "").strip()
         if not sp_name:
-            return (
-                False,
-                "No se logró extraer el número de radicado (sp_name) del PQRS en el CRM."
-            )
+            return (False, MSG_RADICADO_NO_EXTRAIDO)
 
         # Regla 3: Validar presencia de matrículas
-        matriculas_str = caso.get("invt_matriculasrequeridas", "").strip()
+        matriculas_str = caso.get(CAMPO_MATRICULAS, "").strip()
         if not matriculas_str:
-            return (
-                False,
-                "No se logró extraer la(s) matrícula(s) (invt_matriculasrequeridas) del PQRS en el CRM."
-            )
+            return (False, MSG_MATRICULAS_NO_EXTRAIDAS)
         
         # Verificar que al menos haya una matrícula válida después de split
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         if not matriculas:
-            return (
-                False,
-                "No se encontraron matrículas válidas en invt_matriculasrequeridas después de procesar el campo."
-            )
+            return (False, MSG_MATRICULAS_NO_VALIDAS)
 
         # Todas las validaciones pasaron
         return (True, None)

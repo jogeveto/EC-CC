@@ -18,6 +18,14 @@ except ImportError:
 
 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
 from shared.utils.logger import get_logger
+from ExpedicionCopias.core.constants import (
+    CAMPO_DOCUWARE_MATRICULA, CAMPO_DOCUWARE_DWSTOREDATETIME, ORDEN_ASC,
+    SCOPE_DOCUWARE_PLATFORM, CLIENT_ID_DOCUWARE,
+    MSG_DOCUWARE_USERNAME_NO_CONFIG, MSG_DOCUWARE_PASSWORD_NO_CONFIG,
+    MSG_PYMUPDF_NO_INSTALADO, MSG_PYMUPDF_INSTALAR, MSG_PDF_SIN_EMBEBIDOS,
+    MSG_NO_PDF_VALIDO, VALOR_DEFECTO_NODATE, VALOR_DEFECTO_NODOCNAME,
+    EXTENSION_PDF, EXTENSION_TIFF, EXTENSION_JPG, EXTENSION_PNG
+)
 
 
 class DocuWareClient:
@@ -136,16 +144,16 @@ class DocuWareClient:
         password = self.config.get('password', '').strip()
         
         if not username:
-            raise ValueError("Username de DocuWare no está configurado en la sección DocuWare")
+            raise ValueError(MSG_DOCUWARE_USERNAME_NO_CONFIG)
         if not password:
-            raise ValueError("Password de DocuWare no está configurado. Verifica que la variable de Rocketbot 'docuware_password' esté configurada")
+            raise ValueError(MSG_DOCUWARE_PASSWORD_NO_CONFIG)
         
         self.logger.info(f"[AUTH] Autenticando usuario: {username}")
         
         data = {
             "grant_type": "password",
-            "scope": "docuware.platform",
-            "client_id": "docuware.platform.net.client",
+            "scope": SCOPE_DOCUWARE_PLATFORM,
+            "client_id": CLIENT_ID_DOCUWARE,
             "username": username,
             "password": password
         }
@@ -361,15 +369,15 @@ class DocuWareClient:
         body = {
             "Condition": [
                 {
-                    "DBName": "MATRICULA",
+                    "DBName": CAMPO_DOCUWARE_MATRICULA,
                     "Value": [matricula_value]
                 }
             ],
             "Operation": "And",
             "SortOrder": [
                 {
-                    "Field": "DWSTOREDATETIME",
-                    "Direction": "Asc"
+                    "Field": CAMPO_DOCUWARE_DWSTOREDATETIME,
+                    "Direction": ORDEN_ASC
                 }
             ],
             "Start": 0,
@@ -567,19 +575,19 @@ class DocuWareClient:
         if stored_dt:
             date_prefix = stored_dt.strftime("%Y%m%d_%H%M%S")
         else:
-            date_prefix = "NODATE"
+            date_prefix = VALOR_DEFECTO_NODATE
         
         nombre_doc = self._obtener_campo(documento, "TRDNOMBREDOCUMENTO")
         if not nombre_doc:
-            nombre_doc = "NODOCNAME"
+            nombre_doc = VALOR_DEFECTO_NODOCNAME
         
-        ext = ".pdf"
+        ext = EXTENSION_PDF
         if "image/tiff" in content_type:
-            ext = ".tiff"
+            ext = EXTENSION_TIFF
         elif "image/jpeg" in content_type or "image/jpg" in content_type:
-            ext = ".jpg"
+            ext = EXTENSION_JPG
         elif "image/png" in content_type:
-            ext = ".png"
+            ext = EXTENSION_PNG
         
         filename = f"{date_prefix}_{nombre_doc}_{document_id}{ext}"
         filename = "".join(c if c.isalnum() or c in "._-" else "_" for c in filename)
@@ -622,7 +630,7 @@ class DocuWareClient:
             True si el PDF tiene attachments embebidos, False en caso contrario
         """
         if not HAS_PYMUPDF:
-            self.logger.warning("[SOBRE] PyMuPDF no está instalado. No se pueden detectar archivos embebidos.")
+            self.logger.warning(f"[SOBRE] {MSG_PYMUPDF_NO_INSTALADO}")
             return False
         
         if not pdf_path.exists():
@@ -653,7 +661,7 @@ class DocuWareClient:
             Exception: Si no se pueden extraer o mergear los attachments
         """
         if not HAS_PYMUPDF:
-            raise ValueError("PyMuPDF no está instalado. Instala con: pip install PyMuPDF")
+            raise ValueError(MSG_PYMUPDF_INSTALAR)
         
         if not pdf_path.exists():
             raise FileNotFoundError(f"El archivo PDF no existe: {pdf_path}")
@@ -665,7 +673,7 @@ class DocuWareClient:
             
             if not doc.embfile_count():
                 doc.close()
-                raise ValueError("El PDF no tiene archivos embebidos")
+                raise ValueError(MSG_PDF_SIN_EMBEBIDOS)
             
             self.logger.info(f"[SOBRE] Detectados {doc.embfile_count()} archivo(s) embebido(s) en el PDF")
             
@@ -712,7 +720,7 @@ class DocuWareClient:
                 doc.close()
                 
                 if not archivos_para_mergear:
-                    raise ValueError("No se pudo extraer ningún PDF válido de los attachments")
+                    raise ValueError(MSG_NO_PDF_VALIDO)
                 
                 # Si se debe incluir la carátula, agregarla al inicio
                 if incluir_caratula:

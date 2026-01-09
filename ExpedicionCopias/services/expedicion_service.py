@@ -21,6 +21,31 @@ from ExpedicionCopias.core.time_validator import TimeValidator
 from ExpedicionCopias.core.non_critical_rules_validator import NonCriticalRulesValidator
 from ExpedicionCopias.core.auth import Dynamics365Authenticator, AzureAuthenticator
 from ExpedicionCopias.services.db_service import ExpedicionCopiasDB
+from ExpedicionCopias.core.constants import (
+    CAMPO_RADICADO_PRINCIPAL, CAMPO_EMAIL_PARTICULARES, CAMPO_EMAIL_CREADOR,
+    VALOR_DEFECTO_NA, RUTA_PARTICULARES, RUTA_OFICIALES, RUTA_OFICIALES_SLASH,
+    PERMISO_READ, PERMISO_VIEW, ESTADO_EXITOSO, ESTADO_NO_EXITOSO, ESTADO_PENDIENTE,
+    MENSAJE_PROCESADO_CORRECTAMENTE, MENSAJE_NO_PROCESADO,
+    MSG_INTERRUMPIDO_FRANJA, MSG_NO_PROCESADO_FRANJA, MSG_NO_DOCUMENTOS,
+    MSG_TODOS_EXCLUIDOS, MSG_TODAS_DESCARGAS_FALLARON, MSG_CASO_PROCESADO,
+    VARIABLE_NOMBRE_SOCIEDAD, VARIABLE_NUMERO_PQRS, VARIABLE_FECHA_HOY,
+    VARIABLE_CLIENTE, VARIABLE_CORREO_ELECTRONICO, VARIABLE_CORREO_ELECTRONICO_VARIANTE,
+    VARIABLE_FECHA_INGRESO, VARIABLE_ENLACE_ONEDRIVE, VARIABLE_ENLACE_ONEDRIVE_VARIANTE,
+    VARIABLE_FECHA_RESPUESTA, MSG_EMAIL_RESPONSABLE_NO_CONFIG, MSG_PLANTILLA_SIN_ADJUNTOS_NO_ENCONTRADA,
+    MSG_PLANTILLA_REGLAS_NO_CRITICAS_NO_CONFIG, MSG_CUERPO_PLANTILLA_VACIO,
+    MSG_ERROR_COMPARTIR, PLANTILLA_ERROR_COMPARTIR_SALUDO, PLANTILLA_ERROR_COMPARTIR_CUERPO,
+    PLANTILLA_ERROR_COMPARTIR_CONTINUACION, PLANTILLA_ERROR_COMPARTIR_FIRMA,
+    PLANTILLA_REGLAS_NO_CRITICAS_ASUNTO, MSG_FIRMA_NO_CONFIG, MSG_MODO_INVALIDO,
+    MSG_EMAIL_QA_NO_CONFIG, HEADER_CODIGO_ASISTENTE, HEADER_CODIGO_BOT, HEADER_USUARIO_RED,
+    HEADER_NOMBRE_ESTACION, HEADER_ID_PROCESO, HEADER_NO_RADICADO, HEADER_MATRICULAS,
+    HEADER_ESTADO_PROCESO, HEADER_OBSERVACION, HEADER_FECHA_INICIO, HEADER_HORA_INICIO,
+    HEADER_FECHA_FIN, HEADER_HORA_FIN, CODIGO_BOT_PARTICULARES, CODIGO_BOT_OFICIALES,
+    VALOR_DEFECTO_CODIGO_ASISTENTE, VALOR_DEFECTO_USUARIO_RED, VALOR_DEFECTO_MAQUINA,
+    RUTA_REPORTES, FORMATO_NOMBRE_REPORTE, MSG_PLANTILLA_EMAIL_NO_CONFIG,
+    PLANTILLA_REPORTE_ASUNTO, PLANTILLA_REPORTE_CUERPO, TIPO_PARTICULARES, TIPO_OFICIALES,
+    MSG_DATABASE_NO_CONFIG, MSG_DATABASE_PASSWORD_NO_CONFIG, MSG_ERROR_PROCESAMIENTO,
+    PLANTILLA_ERROR_CASO_ASUNTO, PLANTILLA_ERROR_CASO_CUERPO, MESES_ESPAÑOL
+)
 
 
 class ExpedicionService:
@@ -92,6 +117,19 @@ class ExpedicionService:
         
         self.pdf_merger = PDFMerger()
         self.file_organizer = FileOrganizer()
+
+    def _obtener_numero_radicado(self, caso: Dict[str, Any], fallback: str = VALOR_DEFECTO_NA) -> str:
+        """
+        Obtiene el número de radicado principal del caso.
+        
+        Args:
+            caso: Diccionario con información del caso
+            fallback: Valor a retornar si no se encuentra el radicado
+            
+        Returns:
+            Número de radicado (sp_name) o fallback
+        """
+        return caso.get(CAMPO_RADICADO_PRINCIPAL, "") or fallback
 
     def _validar_franja_horaria_tipo(self, tipo: str) -> bool:
         """
@@ -408,21 +446,21 @@ class ExpedicionService:
                 # Validar franja horaria antes de procesar cada caso
                 if not self.time_validator.debe_ejecutar():
                     case_id = caso.get('sp_documentoid', 'N/A')
-                    ticket_number = caso.get('sp_ticketnumber', 'N/A')
-                    self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
+                    radicado = self._obtener_numero_radicado(caso)
+                    self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {radicado}) quedará pendiente.")
                     # Agregar caso actual y todos los restantes a pendientes
-                    self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
+                    self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": MSG_INTERRUMPIDO_FRANJA})
                     # Agregar casos restantes a pendientes
                     indice_actual = casos.index(caso)
                     for caso_restante in casos[indice_actual + 1:]:
-                        self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
+                        self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": MSG_NO_PROCESADO_FRANJA})
                     break
                 
                 case_id = caso.get('sp_documentoid', 'N/A')
-                ticket_number = caso.get('sp_ticketnumber', 'N/A')
+                radicado = self._obtener_numero_radicado(caso)
                 matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
                 matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
-                self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+                self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {radicado}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
                 
                 # Validar reglas no críticas antes de procesar
                 es_valido, mensaje_error = non_critical_validator.validar_reglas_no_criticas(caso, "Copias")
@@ -518,7 +556,7 @@ class ExpedicionService:
             self.logger.info(f"[CASO {case_id}] PDF unificado creado - Tamaño: {tamanio_mb:.2f} MB")
             
             subcategoria_id = caso.get("_sp_subcategoriapqrs_value", "")
-            email_destino = self._obtener_email_caso(caso)
+            email_destino = self._obtener_email_caso(caso, "Copias")
             self.logger.info(f"[CASO {case_id}] Email destino: {email_destino}, Subcategoría: {subcategoria_id}")
             
             if tamanio_mb < 28:
@@ -738,7 +776,7 @@ class ExpedicionService:
                     item_id=item_id,
                     usuario_id=usuario_email,
                     email_destinatario=email_responsable,
-                    rol="read"
+                    rol=PERMISO_READ
                 )
                 link = link_info.get("link", "")
                 if link:
@@ -842,12 +880,12 @@ class ExpedicionService:
             tipo: Tipo de caso ("Copias" o "CopiasOficiales")
         """
         case_id = caso.get("sp_documentoid", "N/A")
-        ticket_number = caso.get("sp_ticketnumber", "N/A")
+        radicado = self._obtener_numero_radicado(caso)
         matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         matriculas_str_display = ", ".join(matriculas) if matriculas else "N/A"
         
-        self.logger.info(f"[CASO {case_id}] Enviando email al responsable - Tipo: {tipo}, Radicado: {ticket_number}")
+        self.logger.info(f"[CASO {case_id}] Enviando email al responsable - Tipo: {tipo}, Radicado: {radicado}")
         
         # Obtener emailResponsable de la configuración
         if tipo == "Copias":
@@ -871,10 +909,10 @@ class ExpedicionService:
             return
         
         # Reemplazar placeholders en la plantilla
-        # Usar sp_name para el identificador visible al usuario, con fallback a case_id
-        nombre_caso = caso.get("sp_name", case_id)
-        cuerpo = plantilla["cuerpo"].replace("{case_id}", nombre_caso)
-        cuerpo = cuerpo.replace("{ticket_number}", ticket_number)
+        # Usar radicado como nombre del caso
+        nombre_caso = radicado
+        cuerpo = plantilla["cuerpo"].replace("{case_id}", case_id)
+        cuerpo = cuerpo.replace("{ticket_number}", radicado)
         cuerpo = cuerpo.replace("{matriculas}", matriculas_str_display)
         
         # Agregar firma al cuerpo
@@ -924,14 +962,14 @@ class ExpedicionService:
         plantilla_config = config_seccion.get("PlantillaEmailReglasNoCriticas", {})
         
         if not plantilla_config:
-            self.logger.warning(f"[CASO {case_id}] PlantillaEmailReglasNoCriticas no está configurada para {tipo}. No se enviará email.")
+            self.logger.warning(MSG_PLANTILLA_REGLAS_NO_CRITICAS_NO_CONFIG.format(tipo=tipo))
             return
         
-        asunto = plantilla_config.get("asunto", "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico")
+        asunto = plantilla_config.get("asunto", PLANTILLA_REGLAS_NO_CRITICAS_ASUNTO)
         cuerpo = plantilla_config.get("cuerpo", "")
         
         if not cuerpo:
-            self.logger.warning(f"[CASO {case_id}] Cuerpo de plantilla vacío. No se enviará email.")
+            self.logger.warning(MSG_CUERPO_PLANTILLA_VACIO)
             return
         
         # Reemplazar placeholder [Novedad identificada] con el mensaje específico
@@ -967,9 +1005,9 @@ class ExpedicionService:
             link_onedrive: URL directa de OneDrive del archivo/carpeta
         """
         case_id = caso.get("sp_documentoid", "N/A")
-        ticket_number = caso.get("sp_ticketnumber", "N/A")
+        radicado = self._obtener_numero_radicado(caso)
         
-        self.logger.info(f"[CASO {case_id}] Enviando email al responsable por error al compartir - Tipo: {tipo}, Radicado: {ticket_number}")
+        self.logger.info(f"[CASO {case_id}] Enviando email al responsable por error al compartir - Tipo: {tipo}, Radicado: {radicado}")
         
         # Obtener emailResponsable de la configuración
         if tipo == "Copias":
@@ -985,21 +1023,21 @@ class ExpedicionService:
         
         # Construir mensaje HTML
         # Usar sp_name para el identificador visible al usuario, con fallback a case_id
-        nombre_caso = caso.get("sp_name", case_id)
-        asunto = f"Error al compartir archivo en OneDrive - Caso {ticket_number}"
+        nombre_caso = self._obtener_numero_radicado(caso, case_id)
+        asunto = MSG_ERROR_COMPARTIR.format(ticket_number=radicado)
         cuerpo = f"""<html><body>
-<p>Estimado/a Responsable,</p>
-<p>Se informa que no fue posible compartir públicamente el archivo/carpeta en OneDrive para el caso {nombre_caso} (Radicado: {ticket_number}) debido a las políticas de seguridad de la organización.</p>
+<p>{PLANTILLA_ERROR_COMPARTIR_SALUDO}</p>
+<p>{PLANTILLA_ERROR_COMPARTIR_CUERPO.format(nombre_caso=nombre_caso, ticket_number=radicado)}</p>
 <p><strong>Información del caso:</strong></p>
 <ul>
-<li>ID Caso: {nombre_caso}</li>
-<li>Radicado: {ticket_number}</li>
+<li>ID Caso: {case_id}</li>
+<li>Radicado: {radicado}</li>
 <li>Tipo: {tipo}</li>
 </ul>
 <p><strong>Error:</strong> {error_msg}</p>
 <p><strong>Enlace de OneDrive:</strong> <a href="{link_onedrive}">{link_onedrive}</a></p>
-<p><strong>Nota:</strong> El proceso continuó normalmente y se envió el enlace directo de OneDrive al destinatario. Este enlace solo es accesible para usuarios autenticados de la organización.</p>
-<p>Saludos,<br>Equipo CCMA</p>
+<p><strong>Nota:</strong> {PLANTILLA_ERROR_COMPARTIR_CONTINUACION}</p>
+<p>{PLANTILLA_ERROR_COMPARTIR_FIRMA}</p>
 </body></html>"""
         
         # Agregar firma al cuerpo
@@ -1028,7 +1066,7 @@ class ExpedicionService:
             error_msg: Mensaje de error
         """
         try:
-            email_destino = self._obtener_email_caso(caso)
+            email_destino = self._obtener_email_caso(caso, "Copias")
             if email_destino:
                 self._enviar_email_error_caso(email_destino, caso, error_msg)
         except Exception as email_error:
@@ -1086,21 +1124,21 @@ class ExpedicionService:
                 # Validar franja horaria antes de procesar cada caso
                 if not self.time_validator.debe_ejecutar():
                     case_id = caso.get('sp_documentoid', 'N/A')
-                    ticket_number = caso.get('sp_ticketnumber', 'N/A')
-                    self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {ticket_number}) quedará pendiente.")
+                    radicado = self._obtener_numero_radicado(caso)
+                    self.logger.warning(f"Fuera de franja horaria, interrumpiendo procesamiento. Caso {case_id} (Radicado: {radicado}) quedará pendiente.")
                     # Agregar caso actual y todos los restantes a pendientes
-                    self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": "Interrumpido por salida de franja horaria"})
+                    self.casos_pendientes.append({"caso": caso, "estado": "pendiente", "mensaje": MSG_INTERRUMPIDO_FRANJA})
                     # Agregar casos restantes a pendientes
                     indice_actual = casos.index(caso)
                     for caso_restante in casos[indice_actual + 1:]:
-                        self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": "No procesado - interrupción por franja horaria"})
+                        self.casos_pendientes.append({"caso": caso_restante, "estado": "pendiente", "mensaje": MSG_NO_PROCESADO_FRANJA})
                     break
                 
                 case_id = caso.get('sp_documentoid', 'N/A')
-                ticket_number = caso.get('sp_ticketnumber', 'N/A')
+                radicado = self._obtener_numero_radicado(caso)
                 matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
                 matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
-                self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {ticket_number}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
+                self.logger.info(f"Procesando caso ID: {case_id}, Radicado: {radicado}, Matrículas: {', '.join(matriculas) if matriculas else 'N/A'}")
                 
                 # Validar reglas no críticas antes de procesar
                 es_valido, mensaje_error = non_critical_validator.validar_reglas_no_criticas(caso, "CopiasOficiales")
@@ -1151,7 +1189,7 @@ class ExpedicionService:
         """Procesa un caso individual de entidades oficiales."""
         case_id = caso.get("sp_documentoid", "")
         # Usar sp_name para el radicado visible al usuario, con fallback a case_id
-        radicado = caso.get("sp_ticketnumber", "") or caso.get("sp_name", case_id)
+        radicado = self._obtener_numero_radicado(caso, case_id)
         matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         
@@ -1321,7 +1359,7 @@ class ExpedicionService:
         carpeta_base = self.config.get("OneDrive", {}).get("carpetaBase", "/ExpedicionCopias")
         usuario_email = self.config.get("GraphAPI", {}).get("user_email", "")
         
-        carpeta_destino = f"{carpeta_base}/Oficiales"
+        carpeta_destino = f"{carpeta_base}{RUTA_OFICIALES}"
         self.logger.info(f"[ONEDRIVE] Iniciando subida de carpeta organizada: {carpeta_organizada} -> {carpeta_destino}")
         
         info_carpeta = self.graph_client.subir_carpeta_completa(
@@ -1369,7 +1407,7 @@ class ExpedicionService:
                 item_id=carpeta_id,
                 usuario_id=usuario_email,
                 email_destinatario=email_responsable,
-                rol="read"
+                rol=PERMISO_READ
             )
             link = link_info.get("link", "")
             if link:
@@ -1406,7 +1444,7 @@ class ExpedicionService:
         
         # Construir la ruta completa de OneDrive
         nombre_carpeta = Path(carpeta_organizada).name
-        ruta_onedrive = f"{carpeta_base}/Oficiales/{nombre_carpeta}"
+        ruta_onedrive = f"{carpeta_base}{RUTA_OFICIALES_SLASH}{nombre_carpeta}"
         self.logger.info(f"[ONEDRIVE] Ruta completa en OneDrive: {ruta_onedrive}")
         
         plantilla = self._obtener_plantilla_email("CopiasOficiales")
@@ -1543,13 +1581,9 @@ class ExpedicionService:
         Returns:
             Fecha formateada en español
         """
-        meses = [
-            "enero", "febrero", "marzo", "abril", "mayo", "junio",
-            "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
-        ]
         hoy = datetime.now()
         dia = hoy.day
-        mes = meses[hoy.month - 1]
+        mes = MESES_ESPAÑOL[hoy.month - 1]
         año = hoy.year
         return f"{dia:02d} de {mes} de {año}"
 
@@ -1607,37 +1641,37 @@ class ExpedicionService:
         
         # [Nombre de la sociedad] = sp_nombredelaempresa
         nombre_sociedad = caso.get("sp_nombredelaempresa", "") or ""
-        resultado = resultado.replace("[Nombre de la sociedad]", nombre_sociedad)
+        resultado = resultado.replace(VARIABLE_NOMBRE_SOCIEDAD, nombre_sociedad)
         
         # [Número PQRS] = sp_name
-        numero_pqrs = caso.get("sp_name", "") or ""
-        resultado = resultado.replace("[Número PQRS]", numero_pqrs)
+        numero_pqrs = self._obtener_numero_radicado(caso, "")
+        resultado = resultado.replace(VARIABLE_NUMERO_PQRS, numero_pqrs)
         
         # [Fecha hoy] = fecha de hoy en formato 'dd de mm de YYYY'
         fecha_hoy_extendida = self._formatear_fecha_hoy_extendida()
-        resultado = resultado.replace("[Fecha hoy]", fecha_hoy_extendida)
+        resultado = resultado.replace(VARIABLE_FECHA_HOY, fecha_hoy_extendida)
         
         # [CLIENTE] = sp_nombredelaempresa
-        resultado = resultado.replace("[CLIENTE]", nombre_sociedad)
+        resultado = resultado.replace(VARIABLE_CLIENTE, nombre_sociedad)
         
-        # [Correo electrónico] = invt_correoelectronico
+        # [Correo electrónico] = invt_correoelectronico (para plantillas)
         correo_electronico = caso.get("invt_correoelectronico", "") or ""
-        resultado = resultado.replace("[Correo electrónico]", correo_electronico)
-        resultado = resultado.replace("[Correo Electrónico]", correo_electronico)  # Variante con mayúscula
+        resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO, correo_electronico)
+        resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO_VARIANTE, correo_electronico)  # Variante con mayúscula
         
         # [Fecha de ingreso de la solicitud] = createdon (solo fecha sin hora)
         createdon = caso.get("createdon", "")
         fecha_ingreso = self._formatear_fecha_createdon(createdon)
-        resultado = resultado.replace("[Fecha de ingreso de la solicitud]", fecha_ingreso)
+        resultado = resultado.replace(VARIABLE_FECHA_INGRESO, fecha_ingreso)
         
         # [Enlace Onedrive.pdf] = Enlace de oneDrive (ya se maneja con {link})
         if link_onedrive:
-            resultado = resultado.replace("[Enlace Onedrive.pdf]", link_onedrive)
-            resultado = resultado.replace("[​Enlace Onedrive.pdf​]", link_onedrive)  # Variante con caracteres especiales
+            resultado = resultado.replace(VARIABLE_ENLACE_ONEDRIVE, link_onedrive)
+            resultado = resultado.replace(VARIABLE_ENLACE_ONEDRIVE_VARIANTE, link_onedrive)  # Variante con caracteres especiales
         
         # [Fecha de respuesta] = fecha de hoy en formato 'dd/mm/YYYY'
         fecha_respuesta = self._formatear_fecha_hoy_corta()
-        resultado = resultado.replace("[Fecha de respuesta]", fecha_respuesta)
+        resultado = resultado.replace(VARIABLE_FECHA_RESPUESTA, fecha_respuesta)
         
         return resultado
 
@@ -1655,7 +1689,7 @@ class ExpedicionService:
         texto_firma = firma_config.get("texto", "")
         
         if not texto_firma:
-            self.logger.warning("Firma no configurada en config.json. No se agregará firma al correo.")
+            self.logger.warning(MSG_FIRMA_NO_CONFIG)
             return cuerpo
         
         # Verificar si la firma ya está presente en el cuerpo
@@ -1698,7 +1732,7 @@ class ExpedicionService:
         # Validar modo
         modo_upper = modo.upper() if isinstance(modo, str) else "PROD"
         if modo_upper not in ["QA", "PROD"]:
-            self.logger.warning(f"Modo inválido '{modo}', usando PROD por defecto")
+            self.logger.warning(MSG_MODO_INVALIDO.format(modo=modo))
             modo_upper = "PROD"
         
         # Si es PROD, retornar destinatarios originales
@@ -1708,7 +1742,7 @@ class ExpedicionService:
         # Si es QA, validar y usar emailQa
         email_qa = globales_config.get("emailQa", "")
         if not email_qa:
-            error_msg = "Modo QA configurado pero 'emailQa' no está definido en la sección Globales"
+            error_msg = MSG_EMAIL_QA_NO_CONFIG
             self.logger.error(error_msg)
             raise ValueError(error_msg)
         
@@ -1718,15 +1752,24 @@ class ExpedicionService:
         
         return [email_qa]
 
-    def _obtener_email_caso(self, caso: Dict[str, Any]) -> str:
-        """Obtiene el email del caso desde los campos del CRM."""
-        # Prioridad: sp_correoelectronico, emailaddress, emailaddress1
-        return (
-            caso.get("sp_correoelectronico", "") 
-            or caso.get("emailaddress", "") 
-            or caso.get("emailaddress1", "") 
-            or ""
-        )
+    def _obtener_email_caso(self, caso: Dict[str, Any], tipo_proceso: str = "Copias") -> str:
+        """
+        Obtiene el email del caso según el tipo de proceso.
+        
+        Args:
+            caso: Diccionario con información del caso
+            tipo_proceso: Tipo de proceso ("Copias" para particulares, "CopiasOficiales" para oficiales)
+            
+        Returns:
+            Email del caso o cadena vacía si no se encuentra
+        """
+        if tipo_proceso == "Copias":
+            # Para particulares: usar sp_correoelectronico
+            return caso.get(CAMPO_EMAIL_PARTICULARES, "") or ""
+        else:
+            # Para oficiales: usar emailResponsable de configuración
+            config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+            return config_seccion.get("emailResponsable", "") or ""
 
     def _validar_email(self, email: str) -> bool:
         """
@@ -1848,8 +1891,9 @@ class ExpedicionService:
     def _enviar_email_error_caso(self, email: str, caso: Dict[str, Any], mensaje: str) -> None:
         """Envía email de error para un caso individual."""
         try:
-            asunto = f"Error en procesamiento de caso {caso.get('sp_ticketnumber', 'N/A')}"
-            cuerpo = f"<html><body><p>Estimado/a,</p><p>Se presentó un error al procesar su caso:</p><p>{mensaje}</p><p>Por favor contacte al administrador.</p></body></html>"
+            radicado = self._obtener_numero_radicado(caso)
+            asunto = MSG_ERROR_PROCESAMIENTO.format(sp_ticketnumber=radicado)
+            cuerpo = PLANTILLA_ERROR_CASO_CUERPO.format(mensaje=mensaje)
             
             # Agregar firma al cuerpo
             cuerpo_con_firma = self._agregar_firma(cuerpo)
@@ -1914,19 +1958,19 @@ class ExpedicionService:
         
         # Definir headers con las nuevas columnas
         headers = [
-            "Codigo Asistente",
-            "Codigo Bot",
-            "Usuario de red bot runner",
-            "Nombre Estacion Bot Runner",
-            "ID Proceso",
-            "No Radicado",
-            "Matricuas",
-            "Estado proceso",
-            "Observación",
-            "Fecha Inicio de ejecución",
-            "Hora Inicio de ejecución",
-            "Fecha Fin de ejecución",
-            "Hora Fin de ejecución"
+            HEADER_CODIGO_ASISTENTE,
+            HEADER_CODIGO_BOT,
+            HEADER_USUARIO_RED,
+            HEADER_NOMBRE_ESTACION,
+            HEADER_ID_PROCESO,
+            HEADER_NO_RADICADO,
+            HEADER_MATRICULAS,
+            HEADER_ESTADO_PROCESO,
+            HEADER_OBSERVACION,
+            HEADER_FECHA_INICIO,
+            HEADER_HORA_INICIO,
+            HEADER_FECHA_FIN,
+            HEADER_HORA_FIN
         ]
         ws.append(headers)
         
@@ -1940,10 +1984,9 @@ class ExpedicionService:
         # Agregar casos exitosos
         for item in self.casos_procesados:
             caso = item.get("caso", {})
-            ticket_number = caso.get("sp_ticketnumber", "")
-            sp_name = caso.get("sp_name", "")
-            # Combinar sp_ticketnumber y sp_name en No Radicado
-            no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+            radicado = self._obtener_numero_radicado(caso, "")
+            # Usar solo sp_name como número de radicado
+            no_radicado = radicado if radicado else VALOR_DEFECTO_NA
             matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
             matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
             matriculas_display = ", ".join(matriculas) if matriculas else ""
@@ -1956,8 +1999,8 @@ class ExpedicionService:
                 id_proceso,
                 no_radicado,
                 matriculas_display,
-                "Exitoso",
-                "Procesado correctamente",
+                ESTADO_EXITOSO,
+                MENSAJE_PROCESADO_CORRECTAMENTE,
                 fecha_inicio,
                 hora_inicio,
                 fecha_fin,
@@ -1967,10 +2010,9 @@ class ExpedicionService:
         # Agregar casos con error (No Exitosos)
         for item in self.casos_error:
             caso = item.get("caso", {})
-            ticket_number = caso.get("sp_ticketnumber", "")
-            sp_name = caso.get("sp_name", "")
-            # Combinar sp_ticketnumber y sp_name en No Radicado
-            no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+            radicado = self._obtener_numero_radicado(caso, "")
+            # Usar solo sp_name como número de radicado
+            no_radicado = radicado if radicado else VALOR_DEFECTO_NA
             matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
             matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
             matriculas_display = ", ".join(matriculas) if matriculas else ""
@@ -1984,7 +2026,7 @@ class ExpedicionService:
                 id_proceso,
                 no_radicado,
                 matriculas_display,
-                "No Exitoso",
+                ESTADO_NO_EXITOSO,
                 mensaje_error,
                 fecha_inicio,
                 hora_inicio,
@@ -1995,14 +2037,13 @@ class ExpedicionService:
         # Agregar casos pendientes
         for item in self.casos_pendientes:
             caso = item.get("caso", {})
-            ticket_number = caso.get("sp_ticketnumber", "")
-            sp_name = caso.get("sp_name", "")
-            # Combinar sp_ticketnumber y sp_name en No Radicado
-            no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+            radicado = self._obtener_numero_radicado(caso, "")
+            # Usar solo sp_name como número de radicado
+            no_radicado = radicado if radicado else VALOR_DEFECTO_NA
             matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
             matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
             matriculas_display = ", ".join(matriculas) if matriculas else ""
-            mensaje_pendiente = item.get("mensaje", "No procesado")
+            mensaje_pendiente = item.get("mensaje", MENSAJE_NO_PROCESADO)
             
             ws.append([
                 codigo_asistente,
@@ -2012,7 +2053,7 @@ class ExpedicionService:
                 id_proceso,
                 no_radicado,
                 matriculas_display,
-                "Pendiente",
+                ESTADO_PENDIENTE,
                 mensaje_pendiente,
                 fecha_inicio,
                 hora_inicio,
@@ -2023,11 +2064,11 @@ class ExpedicionService:
         self._ajustar_ancho_columnas(ws)
         
         ruta_base = self.config.get("Globales", {}).get("RutaBaseProyecto", ".")
-        reportes_dir = Path(ruta_base) / "reportes"
+        reportes_dir = Path(ruta_base) / RUTA_REPORTES
         reportes_dir.mkdir(parents=True, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        reporte_path = reportes_dir / f"reporte_expedicion_{timestamp}.xlsx"
+        reporte_path = reportes_dir / FORMATO_NOMBRE_REPORTE.format(timestamp=timestamp)
         wb.save(str(reporte_path))
         
         # Guardar datos en base de datos
@@ -2065,7 +2106,7 @@ class ExpedicionService:
             email_responsable = config_seccion.get("emailResponsable", "")
             
             if not email_responsable:
-                self.logger.warning(f"emailResponsable no está configurado para {tipo}. No se enviará reporte por email.")
+                self.logger.warning(MSG_EMAIL_RESPONSABLE_NO_CONFIG.format(tipo=tipo, accion="reporte por email"))
                 return
             
             # Obtener plantilla de email desde config
@@ -2073,14 +2114,14 @@ class ExpedicionService:
             plantilla_config = reportes_config.get("PlantillaEmail", {})
             
             if not plantilla_config:
-                self.logger.warning(f"PlantillaEmail no está configurada en Reportes. No se enviará reporte por email.")
+                self.logger.warning(MSG_PLANTILLA_EMAIL_NO_CONFIG)
                 return
             
-            asunto = plantilla_config.get("asunto", "Reporte de Ejecución - Expedición de Copias")
-            cuerpo = plantilla_config.get("cuerpo", "<html><body><p>Estimado/a Responsable,</p><p>Se adjunta el reporte de ejecución.</p><p>Saludos,<br>Equipo CCMA</p></body></html>")
+            asunto = plantilla_config.get("asunto", PLANTILLA_REPORTE_ASUNTO)
+            cuerpo = plantilla_config.get("cuerpo", PLANTILLA_REPORTE_CUERPO)
             
             # Reemplazar placeholders en la plantilla
-            tipo_proceso_display = "PARTICULARES" if tipo == "Copias" else "OFICIALES"
+            tipo_proceso_display = TIPO_PARTICULARES if tipo == "Copias" else TIPO_OFICIALES
             fecha_reporte = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             fecha_fin = fecha_hora_fin.strftime("%d%m%Y-%H%M%S")
             casos_exitosos = len(self.casos_procesados)
@@ -2177,12 +2218,12 @@ class ExpedicionService:
             # Verificar si hay configuración de BD
             db_config = self.config.get("Database", {})
             if not db_config:
-                self.logger.warning("Configuración de Database no encontrada. No se guardará reporte en BD.")
+                self.logger.warning(MSG_DATABASE_NO_CONFIG)
                 return
             
             # Verificar si hay password (debe venir desde rocketbot)
             if not db_config.get("password"):
-                self.logger.warning("Password de Database no configurado (debe obtenerse desde rocketbot). No se guardará reporte en BD.")
+                self.logger.warning(MSG_DATABASE_PASSWORD_NO_CONFIG)
                 return
             
             # Crear instancia de ExpedicionCopiasDB
@@ -2194,9 +2235,9 @@ class ExpedicionService:
             # Insertar casos exitosos
             for item in self.casos_procesados:
                 caso = item.get("caso", {})
-                ticket_number = caso.get("sp_ticketnumber", "")
-                sp_name = caso.get("sp_name", "")
-                no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+                radicado = self._obtener_numero_radicado(caso, "")
+                # Usar solo sp_name como número de radicado
+                no_radicado = radicado if radicado else VALOR_DEFECTO_NA
                 matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
                 matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
                 matriculas_display = ", ".join(matriculas) if matriculas else ""
@@ -2209,8 +2250,8 @@ class ExpedicionService:
                     id_proceso=id_proceso,
                     no_radicado=no_radicado,
                     matriculas=matriculas_display,
-                    estado_proceso="Exitoso",
-                    observacion="Procesado correctamente",
+                    estado_proceso=ESTADO_EXITOSO,
+                    observacion=MENSAJE_PROCESADO_CORRECTAMENTE,
                     fecha_inicio_ejecucion=fecha_inicio,
                     hora_inicio_ejecucion=hora_inicio,
                     fecha_fin_ejecucion=fecha_fin,
@@ -2223,9 +2264,9 @@ class ExpedicionService:
             # Insertar casos con error (No Exitosos)
             for item in self.casos_error:
                 caso = item.get("caso", {})
-                ticket_number = caso.get("sp_ticketnumber", "")
-                sp_name = caso.get("sp_name", "")
-                no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+                radicado = self._obtener_numero_radicado(caso, "")
+                # Usar solo sp_name como número de radicado
+                no_radicado = radicado if radicado else VALOR_DEFECTO_NA
                 matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
                 matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
                 matriculas_display = ", ".join(matriculas) if matriculas else ""
@@ -2253,13 +2294,13 @@ class ExpedicionService:
             # Insertar casos pendientes
             for item in self.casos_pendientes:
                 caso = item.get("caso", {})
-                ticket_number = caso.get("sp_ticketnumber", "")
-                sp_name = caso.get("sp_name", "")
-                no_radicado = f"{ticket_number} ({sp_name})" if sp_name else ticket_number
+                radicado = self._obtener_numero_radicado(caso, "")
+                # Usar solo sp_name como número de radicado
+                no_radicado = radicado if radicado else VALOR_DEFECTO_NA
                 matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
                 matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
                 matriculas_display = ", ".join(matriculas) if matriculas else ""
-                mensaje_pendiente = item.get("mensaje", "No procesado")
+                mensaje_pendiente = item.get("mensaje", MENSAJE_NO_PROCESADO)
                 
                 if db_service.insert_reporte_expedicion(
                     codigo_asistente=codigo_asistente,
@@ -2269,7 +2310,7 @@ class ExpedicionService:
                     id_proceso=id_proceso,
                     no_radicado=no_radicado,
                     matriculas=matriculas_display,
-                    estado_proceso="Pendiente",
+                    estado_proceso=ESTADO_PENDIENTE,
                     observacion=mensaje_pendiente,
                     fecha_inicio_ejecucion=fecha_inicio,
                     hora_inicio_ejecucion=hora_inicio,
