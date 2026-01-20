@@ -683,6 +683,11 @@ class ExpedicionService:
         asunto_procesado = self._reemplazar_variables_plantilla(plantilla["asunto"], caso)
         cuerpo_procesado = self._reemplazar_variables_plantilla(plantilla["cuerpo"], caso)
         
+        # Logging para verificar reemplazo
+        case_id = caso.get("sp_documentoid", "N/A")
+        self.logger.info(f"[CASO {case_id}] Asunto después de reemplazo: {asunto_procesado[:100]}...")
+        self.logger.debug(f"[CASO {case_id}] Cuerpo después de reemplazo (primeros 200 chars): {cuerpo_procesado[:200]}...")
+        
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
         
@@ -826,6 +831,10 @@ class ExpedicionService:
         # Luego reemplazar todas las variables de la plantilla
         asunto_procesado = self._reemplazar_variables_plantilla(plantilla["asunto"], caso, link)
         cuerpo_procesado = self._reemplazar_variables_plantilla(cuerpo_con_link, caso, link)
+        
+        # Logging para verificar reemplazo
+        self.logger.info(f"[CASO {case_id}] Asunto después de reemplazo: {asunto_procesado[:100]}...")
+        self.logger.debug(f"[CASO {case_id}] Cuerpo después de reemplazo (primeros 200 chars): {cuerpo_procesado[:200]}...")
         
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
@@ -1637,25 +1646,37 @@ class ExpedicionService:
         Returns:
             Plantilla con variables reemplazadas
         """
+        case_id = caso.get("sp_documentoid", "N/A")
         resultado = plantilla
         
-        # [Nombre de la sociedad] = sp_nombredelaempresa
+        # Logging de valores del caso antes del reemplazo
+        self.logger.info(f"[CASO {case_id}] Valores del caso antes de reemplazar variables:")
+        self.logger.info(f"[CASO {case_id}]   - sp_nombredelaempresa: '{caso.get('sp_nombredelaempresa', '')}'")
+        self.logger.info(f"[CASO {case_id}]   - invt_correoelectronico: '{caso.get('invt_correoelectronico', '')}'")
+        self.logger.info(f"[CASO {case_id}]   - sp_correoelectronico: '{caso.get('sp_correoelectronico', '')}'")
+        self.logger.info(f"[CASO {case_id}]   - sp_name: '{caso.get('sp_name', '')}'")
+        
+        # [Nombre de la sociedad] = sp_nombredelaempresa (siempre existe, obligatorio en CRM)
         nombre_sociedad = caso.get("sp_nombredelaempresa", "") or ""
+        self.logger.info(f"[CASO {case_id}] Variable [Nombre de la sociedad]: '{nombre_sociedad}' (sp_nombredelaempresa)")
         resultado = resultado.replace(VARIABLE_NOMBRE_SOCIEDAD, nombre_sociedad)
         
         # [Número PQRS] = sp_name
         numero_pqrs = self._obtener_numero_radicado(caso, "")
+        self.logger.info(f"[CASO {case_id}] Variable [Número PQRS]: '{numero_pqrs}' (sp_name)")
         resultado = resultado.replace(VARIABLE_NUMERO_PQRS, numero_pqrs)
         
         # [Fecha hoy] = fecha de hoy en formato 'dd de mm de YYYY'
         fecha_hoy_extendida = self._formatear_fecha_hoy_extendida()
         resultado = resultado.replace(VARIABLE_FECHA_HOY, fecha_hoy_extendida)
         
-        # [CLIENTE] = sp_nombredelaempresa
+        # [CLIENTE] = sp_nombredelaempresa (opcional)
+        self.logger.info(f"[CASO {case_id}] Variable [CLIENTE]: '{nombre_sociedad}' (sp_nombredelaempresa - opcional)")
         resultado = resultado.replace(VARIABLE_CLIENTE, nombre_sociedad)
         
-        # [Correo electrónico] = sp_correoelectronico (para plantillas)
-        correo_electronico = caso.get("sp_correoelectronico", "") or ""
+        # [Correo electrónico] = invt_correoelectronico (para plantillas, siempre viene)
+        correo_electronico = caso.get("invt_correoelectronico", "") or ""
+        self.logger.info(f"[CASO {case_id}] Variable [Correo electrónico]: '{correo_electronico}' (invt_correoelectronico)")
         resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO, correo_electronico)
         resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO_VARIANTE, correo_electronico)  # Variante con mayúscula
         

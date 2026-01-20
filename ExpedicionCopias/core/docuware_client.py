@@ -20,7 +20,7 @@ except ImportError:
 from ExpedicionCopias.core.rules_engine import ExcepcionesValidator
 from shared.utils.logger import get_logger
 from ExpedicionCopias.core.constants import (
-    CAMPO_DOCUWARE_MATRICULA, CAMPO_DOCUWARE_DWSTOREDATETIME, ORDEN_ASC,
+    CAMPO_DOCUWARE_MATRICULA, CAMPO_DOCUWARE_DWSTOREDATETIME, CAMPO_DOCUWARE_FECHA_RADICADO, ORDEN_ASC,
     SCOPE_DOCUWARE_PLATFORM, CLIENT_ID_DOCUWARE,
     MSG_DOCUWARE_USERNAME_NO_CONFIG, MSG_DOCUWARE_PASSWORD_NO_CONFIG,
     MSG_PYMUPDF_NO_INSTALADO, MSG_PYMUPDF_INSTALAR, MSG_PDF_SIN_EMBEBIDOS,
@@ -414,7 +414,7 @@ class DocuWareClient:
             "Operation": "And",
             "SortOrder": [
                 {
-                    "Field": CAMPO_DOCUWARE_DWSTOREDATETIME,
+                    "Field": CAMPO_DOCUWARE_FECHA_RADICADO,
                     "Direction": ORDEN_ASC
                 }
             ],
@@ -424,38 +424,88 @@ class DocuWareClient:
         
         all_documents = []
         all_items_before_filter = []
-        page = 1
-        max_pages = 100
+        count_per_page = body.get("Count", 100)
         
-        while page <= max_pages:
-            def hacer_request():
-                return requests.post(
-                    url, 
-                    json=body, 
-                    headers=self._get_headers(), 
-                    verify=self.verify_ssl
-                )
+        # Primero, obtener el total de documentos para calcular páginas
+        self.logger.info(f"[BUSCAR] Matrícula {matricula}: Obteniendo total de documentos...")
+        
+        # Hacer primera petición para obtener el total
+        first_response = self._reintentar_con_backoff(
+            lambda: requests.post(
+                url, 
+                json=body, 
+                headers=self._get_headers(), 
+                verify=self.verify_ssl
+            )
+        )
+        first_response.raise_for_status()
+        first_result = first_response.json()
+        
+        # Obtener el total de documentos del campo Count.Value
+        count_info = first_result.get('Count', {})
+        total_count = count_info.get('Value', 0)
+        has_more = count_info.get('HasMore', False)
+        
+        self.logger.info(f"[BUSCAR] Matrícula {matricula}: Respuesta inicial - Count.Value: {total_count}, HasMore: {has_more}, Items recibidos: {len(first_result.get('Items', []))}")
+        
+        if total_count == 0:
+            self.logger.warning(f"[BUSCAR] Matrícula {matricula}: No se encontraron documentos en DocuWare")
+            return {
+                "documentos": [],
+                "total_encontrados": 0,
+                "total_disponibles": 0
+            }
+        
+        # Calcular número de páginas (ceiling division)
+        total_pages = (total_count + count_per_page - 1) // count_per_page
+        self.logger.info(f"[BUSCAR] Matrícula {matricula}: Total de documentos: {total_count}, Páginas a procesar: {total_pages}")
+        
+        # Procesar todas las páginas
+        for page in range(total_pages):
+            start = page * count_per_page
             
-            response = self._reintentar_con_backoff(hacer_request)
-            response.raise_for_status()
-            result = response.json()
+            # Crear un nuevo body para cada página con el Start correcto
+            page_body = {
+                "Condition": body["Condition"],
+                "Operation": body["Operation"],
+                "SortOrder": body["SortOrder"],
+                "Start": start,
+                "Count": count_per_page
+            }
+            
+            self.logger.info(f"[BUSCAR] Matrícula {matricula}: Procesando página {page + 1}/{total_pages} (Start: {start})")
+            
+            # Para la primera página, ya tenemos los datos
+            if page == 0:
+                result = first_result
+            else:
+                # Para las siguientes páginas, hacer nueva petición con el body correcto
+                self.logger.debug(f"[BUSCAR] Matrícula {matricula}: Enviando petición para página {page + 1} con body: {page_body}")
+                response = self._reintentar_con_backoff(
+                    lambda b=page_body: requests.post(
+                        url, 
+                        json=b, 
+                        headers=self._get_headers(), 
+                        verify=self.verify_ssl
+                    )
+                )
+                response.raise_for_status()
+                result = response.json()
+                self.logger.debug(f"[BUSCAR] Matrícula {matricula}: Respuesta recibida para página {page + 1}, items en respuesta: {len(result.get('Items', []))}")
             
             items = result.get('Items', [])
             if not items:
+                self.logger.warning(f"[BUSCAR] Matrícula {matricula}: Página {page + 1} no retornó items, finalizando búsqueda")
                 break
+            
+            items_count = len(items)
+            self.logger.info(f"[BUSCAR] Matrícula {matricula}: Página {page + 1} - {items_count} documento(s) encontrado(s)")
             
             all_items_before_filter.extend(items)
             
             for item in items:
                 if self.rules_validator.debe_descargar(item):
                     all_documents.append(item)
-            
-            count_info = result.get('Count', {})
-            if not count_info.get('HasMore', False):
-                break
-            
-            body["Start"] = len(all_documents)
-            page += 1
         
         total_encontrados = len(all_items_before_filter)
         total_despues_filtro = len(all_documents)
