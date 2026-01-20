@@ -235,8 +235,8 @@ MSG_NO_PDF_VALIDO = "No se pudo extraer ningún PDF válido de los attachments"
 MSG_CRM_SIN_ACCESO = "⚠️  La aplicación no tiene acceso al ambiente de Dynamics 365."
 
 # Mensajes de validación de reglas no críticas
-MSG_EMAIL_VACIO = "El campo invt_correoelectronico está vacío. Este es el email de respuesta final cuando mode=PROD."
-MSG_EMAIL_INVALIDO = "El email invt_correoelectronico '{email}' no tiene un formato válido. Este es el email de respuesta final cuando mode=PROD."
+MSG_EMAIL_VACIO = "El campo sp_correoelectronico está vacío. Este es el email de respuesta final cuando mode=PROD."
+MSG_EMAIL_INVALIDO = "El email sp_correoelectronico '{email}' no tiene un formato válido. Este es el email de respuesta final cuando mode=PROD."
 MSG_RADICADO_NO_EXTRAIDO = "No se logró extraer el número de radicado (sp_name) del PQRS en el CRM."
 MSG_MATRICULAS_NO_EXTRAIDAS = "No se logró extraer la(s) matrícula(s) (invt_matriculasrequeridas) del PQRS en el CRM."
 MSG_MATRICULAS_NO_VALIDAS = "No se encontraron matrículas válidas en invt_matriculasrequeridas después de procesar el campo."

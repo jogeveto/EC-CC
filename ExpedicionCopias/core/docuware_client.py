@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import requests
 import re
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -57,6 +58,43 @@ class DocuWareClient:
         self.file_cabinet_id: Optional[str] = None
         self.search_dialog_id: Optional[str] = None
         self.identity_service_url: Optional[str] = None
+
+    def _reintentar_con_backoff(self, func, *args, **kwargs):
+        """
+        Reintenta una función con backoff exponencial en caso de errores de conexión.
+        
+        Args:
+            func: Función a ejecutar
+            *args: Argumentos posicionales para la función
+            **kwargs: Argumentos con nombre para la función
+        
+        Returns:
+            Resultado de la función si es exitosa
+        
+        Raises:
+            La última excepción si todos los reintentos fallan
+        """
+        max_reintentos = 3
+        delays = [1, 2, 4]  # segundos
+        
+        for intento in range(max_reintentos):
+            try:
+                return func(*args, **kwargs)
+            except (requests.exceptions.ConnectionError, 
+                    requests.exceptions.ChunkedEncodingError,
+                    ConnectionError) as e:
+                if intento == max_reintentos - 1:
+                    # Último intento falló, relanzar la excepción
+                    raise
+                delay = delays[intento]
+                self.logger.warning(
+                    f"[BUSCAR] Error de conexión (intento {intento + 1}/{max_reintentos}): {e}. "
+                    f"Reintentando en {delay}s..."
+                )
+                time.sleep(delay)
+        
+        # Este punto no debería alcanzarse, pero por seguridad
+        raise ConnectionError("Todos los reintentos fallaron")
 
     def _get_headers(self) -> Dict[str, str]:
         """
@@ -390,12 +428,15 @@ class DocuWareClient:
         max_pages = 100
         
         while page <= max_pages:
-            response = requests.post(
-                url, 
-                json=body, 
-                headers=self._get_headers(), 
-                verify=self.verify_ssl
-            )
+            def hacer_request():
+                return requests.post(
+                    url, 
+                    json=body, 
+                    headers=self._get_headers(), 
+                    verify=self.verify_ssl
+                )
+            
+            response = self._reintentar_con_backoff(hacer_request)
             response.raise_for_status()
             result = response.json()
             

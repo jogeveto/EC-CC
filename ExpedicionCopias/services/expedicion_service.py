@@ -1654,8 +1654,8 @@ class ExpedicionService:
         # [CLIENTE] = sp_nombredelaempresa
         resultado = resultado.replace(VARIABLE_CLIENTE, nombre_sociedad)
         
-        # [Correo electrónico] = invt_correoelectronico (para plantillas)
-        correo_electronico = caso.get("invt_correoelectronico", "") or ""
+        # [Correo electrónico] = sp_correoelectronico (para plantillas)
+        correo_electronico = caso.get("sp_correoelectronico", "") or ""
         resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO, correo_electronico)
         resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO_VARIANTE, correo_electronico)  # Variante con mayúscula
         
@@ -1847,7 +1847,7 @@ class ExpedicionService:
         Obtiene el email del creador/dueño del caso desde el CRM.
         
         Prioridad:
-        1. invt_correoelectronico (email del destinatario del caso)
+        1. sp_correoelectronico (email del destinatario del caso)
         2. Email del owner/creador consultado desde CRM
         
         Args:
@@ -1858,10 +1858,10 @@ class ExpedicionService:
         """
         case_id = caso.get("sp_documentoid", "N/A")
         
-        # Primera opción: usar invt_correoelectronico (email del destinatario del caso)
-        email_destinatario = caso.get("invt_correoelectronico", "")
+        # Primera opción: usar sp_correoelectronico (email del destinatario del caso)
+        email_destinatario = caso.get("sp_correoelectronico", "")
         if email_destinatario and self._validar_email(email_destinatario):
-            self.logger.info(f"[CASO {case_id}] Usando invt_correoelectronico: {email_destinatario}")
+            self.logger.info(f"[CASO {case_id}] Usando sp_correoelectronico: {email_destinatario}")
             return email_destinatario
         
         # Segunda opción: consultar email del owner/creador desde CRM

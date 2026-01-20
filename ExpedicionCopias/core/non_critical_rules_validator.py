@@ -2,7 +2,7 @@
 import re
 from typing import Dict, Any, Optional, Tuple
 from ExpedicionCopias.core.constants import (
-    CAMPO_RADICADO_PRINCIPAL, CAMPO_EMAIL_CREADOR, CAMPO_MATRICULAS,
+    CAMPO_RADICADO_PRINCIPAL, CAMPO_EMAIL_PARTICULARES, CAMPO_MATRICULAS,
     MSG_EMAIL_VACIO, MSG_EMAIL_INVALIDO, MSG_RADICADO_NO_EXTRAIDO,
     MSG_MATRICULAS_NO_EXTRAIDAS, MSG_MATRICULAS_NO_VALIDAS
 )
@@ -32,7 +32,7 @@ class NonCriticalRulesValidator:
         Valida las reglas no críticas para un caso.
 
         Las reglas validadas son:
-        1. Formato de email válido en invt_correoelectronico (solo en modo PROD)
+        1. Formato de email válido en sp_correoelectronico (solo en modo PROD)
         2. Presencia de número de radicado (sp_name)
         3. Presencia de matrículas (invt_matriculasrequeridas)
 
@@ -50,7 +50,7 @@ class NonCriticalRulesValidator:
         # Regla 1: Validar formato de email (solo en modo PROD)
         modo = self.config.get("Globales", {}).get("modo", "PROD")
         if modo.upper() == "PROD":
-            email = caso.get(CAMPO_EMAIL_CREADOR, "").strip()
+            email = caso.get(CAMPO_EMAIL_PARTICULARES, "").strip()
             if not email:
                 return (False, MSG_EMAIL_VACIO)
             if not self._validar_formato_email(email):
