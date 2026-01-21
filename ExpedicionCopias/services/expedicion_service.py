@@ -755,18 +755,28 @@ class ExpedicionService:
         # Usar sp_name para el nombre de la carpeta visible al usuario, con fallback a case_id
         nombre_caso = caso.get("sp_name", case_id)
         
-        self.graph_client.subir_a_onedrive(
+        resultado_subida = self.graph_client.subir_a_onedrive(
             ruta_local=pdf_unificado,
             carpeta_destino=f"{carpeta_base}/Particulares/{nombre_caso}",
             usuario_id=usuario_email
         )
         
-        info_item = self.graph_client._obtener_info_carpeta(
-            f"{carpeta_base}/Particulares/{nombre_caso}/{Path(pdf_unificado).name}",
-            usuario_email
-        )
-        item_id = info_item.get("id", "")
-        web_url = info_item.get("webUrl", "")
+        # Usar la información del resultado de la subida directamente
+        # Si no está disponible, intentar obtenerla de otra manera
+        item_id = resultado_subida.get("id", "") if resultado_subida else ""
+        web_url = resultado_subida.get("webUrl", "") if resultado_subida else ""
+        
+        # Si no se obtuvo la información de la subida, intentar obtenerla consultando el archivo
+        if not item_id or not web_url:
+            self.logger.warning(f"[CASO {case_id}] Información incompleta del resultado de subida, consultando archivo...")
+            info_item = self.graph_client._obtener_info_carpeta(
+                f"{carpeta_base}/Particulares/{nombre_caso}/{Path(pdf_unificado).name}",
+                usuario_email
+            )
+            if info_item is None:
+                raise ValueError(f"No se pudo obtener información del archivo subido en OneDrive para el caso {case_id}")
+            item_id = info_item.get("id", "") if not item_id else item_id
+            web_url = info_item.get("webUrl", "") if not web_url else web_url
         
         # Obtener emailResponsable de la configuración para compartir
         copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})

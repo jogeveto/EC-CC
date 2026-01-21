@@ -322,11 +322,12 @@ class GraphClient:
         carpeta_destino_clean = carpeta_destino.rstrip("/")
         carpeta_destino_path = f"{carpeta_destino_clean}/{carpeta_local.name}"
         
+        # TODO: Comentado temporalmente - la eliminación de carpetas está generando errores 404
         # Verificar si la carpeta destino ya existe y eliminarla si es necesario
-        self.logger.info(f"[ONEDRIVE] Verificando si la carpeta destino ya existe: {carpeta_destino_path}")
-        carpeta_eliminada = self.eliminar_carpeta_onedrive(carpeta_destino_path, usuario_id)
-        if carpeta_eliminada:
-            self.logger.info(f"[ONEDRIVE] Carpeta existente eliminada antes de subir nuevos documentos: {carpeta_destino_path}")
+        # self.logger.info(f"[ONEDRIVE] Verificando si la carpeta destino ya existe: {carpeta_destino_path}")
+        # carpeta_eliminada = self.eliminar_carpeta_onedrive(carpeta_destino_path, usuario_id)
+        # if carpeta_eliminada:
+        #     self.logger.info(f"[ONEDRIVE] Carpeta existente eliminada antes de subir nuevos documentos: {carpeta_destino_path}")
         
         # Obtener lista de archivos antes de empezar
         archivos = [item for item in carpeta_local.rglob("*") if item.is_file()]
@@ -433,10 +434,15 @@ class GraphClient:
         
         return {}
 
-    def _obtener_info_carpeta(self, ruta_carpeta: str, usuario_id: str) -> Dict[str, Any]:
-        """Obtiene información de una carpeta en OneDrive."""
+    def _obtener_info_carpeta(self, ruta_carpeta: str, usuario_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene información de una carpeta en OneDrive. Retorna None si no existe."""
         endpoint = f"/users/{usuario_id}/drive/root:{ruta_carpeta}"
-        return self.get(endpoint)
+        try:
+            return self.get(endpoint)
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code == 404:
+                return None
+            raise
 
     def eliminar_carpeta_onedrive(self, ruta_carpeta: str, usuario_id: str) -> bool:
         """
@@ -452,10 +458,16 @@ class GraphClient:
         try:
             # Obtener información de la carpeta para obtener su ID
             info_carpeta = self._obtener_info_carpeta(ruta_carpeta, usuario_id)
+            
+            # Si la carpeta no existe, no es un error
+            if info_carpeta is None:
+                self.logger.info(f"[ONEDRIVE] La carpeta no existe, no es necesario eliminarla: {ruta_carpeta}")
+                return False
+            
             carpeta_id = info_carpeta.get("id", "")
             
             if not carpeta_id:
-                self.logger.info(f"[ONEDRIVE] No se pudo obtener ID de la carpeta (probablemente no existe): {ruta_carpeta}")
+                self.logger.warning(f"[ONEDRIVE] No se pudo obtener ID de la carpeta: {ruta_carpeta}")
                 return False
             
             # Eliminar la carpeta usando su ID
@@ -464,6 +476,7 @@ class GraphClient:
                 self.delete(endpoint)
             except requests.HTTPError as delete_error:
                 # Si la carpeta ya no existe al intentar eliminarla (404), no es un error
+                # Esto puede ocurrir si la carpeta se eliminó entre la obtención y la eliminación (race condition)
                 if delete_error.response and delete_error.response.status_code == 404:
                     self.logger.info(f"[ONEDRIVE] La carpeta ya no existe al intentar eliminarla: {ruta_carpeta}")
                     # Limpiar cache de todas formas
@@ -490,20 +503,22 @@ class GraphClient:
             return True
             
         except requests.HTTPError as e:
-            # Si la carpeta no existe (404), no es un error - registrar como info y continuar
+            # Si el error es 404, la carpeta no existe - no es un error
             if e.response and e.response.status_code == 404:
                 self.logger.info(f"[ONEDRIVE] La carpeta no existe, no es necesario eliminarla: {ruta_carpeta}")
+                # Limpiar cache de todas formas
+                carpetas_a_remover = [
+                    carpeta for carpeta in self._carpetas_creadas 
+                    if carpeta == ruta_carpeta or carpeta.startswith(f"{ruta_carpeta}/")
+                ]
+                for carpeta in carpetas_a_remover:
+                    self._carpetas_creadas.discard(carpeta)
                 return False
             # Para otros errores HTTP, registrar como error y relanzar la excepción
             self.logger.error(f"[ONEDRIVE] Error eliminando carpeta {ruta_carpeta}: {e}")
             raise
         except Exception as e:
-            # Verificar si el error puede ser un 404 pero en otro formato
-            error_str = str(e).lower()
-            if "404" in error_str or "not found" in error_str or "no existe" in error_str:
-                self.logger.info(f"[ONEDRIVE] La carpeta no existe, no es necesario eliminarla: {ruta_carpeta}")
-                return False
-            # Para otros errores, registrar como warning y retornar False
+            # Para otros errores inesperados, registrar como warning y retornar False
             self.logger.warning(f"[ONEDRIVE] No se pudo eliminar la carpeta {ruta_carpeta}: {e}")
             return False
 
