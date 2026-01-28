@@ -22,7 +22,8 @@ from ExpedicionCopias.core.non_critical_rules_validator import NonCriticalRulesV
 from ExpedicionCopias.core.auth import Dynamics365Authenticator, AzureAuthenticator
 from ExpedicionCopias.services.db_service import ExpedicionCopiasDB
 from ExpedicionCopias.core.constants import (
-    CAMPO_RADICADO_PRINCIPAL, CAMPO_EMAIL_PARTICULARES, CAMPO_EMAIL_CREADOR,
+    CAMPO_RADICADO_PRINCIPAL, CAMPO_RADICADO_OFICIALES,
+    CAMPO_EMAIL_PARTICULARES, CAMPO_EMAIL_CREADOR,
     VALOR_DEFECTO_NA, RUTA_PARTICULARES, RUTA_OFICIALES, RUTA_OFICIALES_SLASH,
     PERMISO_READ, PERMISO_VIEW, ESTADO_EXITOSO, ESTADO_NO_EXITOSO, ESTADO_PENDIENTE,
     MENSAJE_PROCESADO_CORRECTAMENTE, MENSAJE_NO_PROCESADO,
@@ -130,6 +131,17 @@ class ExpedicionService:
             Número de radicado (sp_name) o fallback
         """
         return caso.get(CAMPO_RADICADO_PRINCIPAL, "") or fallback
+
+    def _obtener_numero_radicado_oficiales(self, caso: Dict[str, Any], fallback: str = VALOR_DEFECTO_NA) -> str:
+        """
+        Obtiene el número de radicado específico para Oficiales.
+
+        Este valor proviene del campo sp_nroderadicado y se usa únicamente
+        para reemplazar el placeholder {numero_radicado} en las plantillas
+        de email de CopiasOficiales, sin afectar el resto del proceso que
+        sigue usando CAMPO_RADICADO_PRINCIPAL.
+        """
+        return caso.get(CAMPO_RADICADO_OFICIALES, "") or fallback
 
     def _validar_franja_horaria_tipo(self, tipo: str) -> bool:
         """
@@ -899,12 +911,19 @@ class ExpedicionService:
             tipo: Tipo de caso ("Copias" o "CopiasOficiales")
         """
         case_id = caso.get("sp_documentoid", "N/A")
+
+        # Radicado general para logging y para Copias
         radicado = self._obtener_numero_radicado(caso)
+        # Radicado específico de Oficiales (solo para placeholder {numero_radicado})
+        radicado_oficial = self._obtener_numero_radicado_oficiales(caso, radicado)
         matriculas_str = caso.get("invt_matriculasrequeridas", "") or ""
         matriculas = [m.strip() for m in matriculas_str.split(",") if m.strip()]
         matriculas_str_display = ", ".join(matriculas) if matriculas else "N/A"
         
-        self.logger.info(f"[CASO {case_id}] Enviando email al responsable - Tipo: {tipo}, Radicado: {radicado}")
+        self.logger.info(
+            f"[CASO {case_id}] Enviando email al responsable - Tipo: {tipo}, "
+            f"Radicado general: {radicado}, Radicado Oficiales: {radicado_oficial}"
+        )
         
         # Obtener emailResponsable de la configuración
         if tipo == "Copias":
@@ -930,9 +949,17 @@ class ExpedicionService:
         # Reemplazar placeholders en la plantilla
         # Usar radicado como nombre del caso
         nombre_caso = radicado
+
         cuerpo = plantilla["cuerpo"].replace("{case_id}", case_id)
         cuerpo = cuerpo.replace("{ticket_number}", radicado)
         cuerpo = cuerpo.replace("{matriculas}", matriculas_str_display)
+
+        # Si es CopiasOficiales, reemplazar además {numero_radicado} con el valor específico de Oficiales
+        if tipo == "CopiasOficiales":
+            cuerpo = cuerpo.replace("{numero_radicado}", radicado_oficial)
+            asunto = plantilla["asunto"].replace("{numero_radicado}", radicado_oficial)
+        else:
+            asunto = plantilla["asunto"]
         
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo)
@@ -943,7 +970,7 @@ class ExpedicionService:
         try:
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
-                asunto=plantilla["asunto"],
+                asunto=asunto,
                 cuerpo=cuerpo_con_firma,
                 destinatarios=destinatarios
             )
@@ -1467,13 +1494,19 @@ class ExpedicionService:
         self.logger.info(f"[ONEDRIVE] Ruta completa en OneDrive: {ruta_onedrive}")
         
         plantilla = self._obtener_plantilla_email("CopiasOficiales")
+
+        # Obtener No. Radicado específico de Oficiales para el placeholder {numero_radicado}
+        radicado_oficial = self._obtener_numero_radicado_oficiales(caso, "")
+        self.logger.info(f"[CASO {case_id}] No. radicado (Oficiales) para email: '{radicado_oficial}' (sp_nroderadicado)")
         
-        # Primero reemplazar {link} y {onedrive_path}
+        # Primero reemplazar {link}, {onedrive_path} y {numero_radicado}
+        asunto_con_radicado = plantilla["asunto"].replace("{numero_radicado}", radicado_oficial)
         cuerpo_con_link = plantilla["cuerpo"].replace("{link}", link)
         cuerpo_con_link = cuerpo_con_link.replace("{onedrive_path}", ruta_onedrive)
+        cuerpo_con_link = cuerpo_con_link.replace("{numero_radicado}", radicado_oficial)
         
-        # Luego reemplazar todas las variables de la plantilla
-        asunto_procesado = self._reemplazar_variables_plantilla(plantilla["asunto"], caso, link)
+        # Luego reemplazar todas las variables estándar de la plantilla
+        asunto_procesado = self._reemplazar_variables_plantilla(asunto_con_radicado, caso, link)
         cuerpo_procesado = self._reemplazar_variables_plantilla(cuerpo_con_link, caso, link)
         
         # Agregar firma al cuerpo

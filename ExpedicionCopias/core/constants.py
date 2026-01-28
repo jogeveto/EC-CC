@@ -4,8 +4,11 @@
 # CAMPOS CRM
 # ============================================================================
 
-# Campo principal para número de radicado
+# Campo principal para número de radicado (uso general del proceso)
 CAMPO_RADICADO_PRINCIPAL = "sp_name"
+
+# Campo específico de número de radicado para Oficiales (solo para emails)
+CAMPO_RADICADO_OFICIALES = "sp_nroderadicado"
 
 # Campo alternativo de ticket (solo para consultas, no para lógica de negocio)
 CAMPO_TICKET_ALTERNATIVO = "sp_ticketnumber"
