@@ -20,7 +20,7 @@ class CRMClient:
     # Lista completa de campos para $select (misma lista que DynamicsCrmApi/services/pqrs_service.py)
     ALL_FIELDS = [
         "_createdby_value", "_createdonbehalfby_value", "_invt_especificacion_value",
-        "_invt_tipodeatencion_value", "_modifiedby_value", "_modifiedonbehalfby_value", "_ownerid_value",
+        "_modifiedby_value", "_modifiedonbehalfby_value", "_ownerid_value",
         "_owningbusinessunit_value", "_owningteam_value", "_owninguser_value", "_sp_abogadoresponsable_value",
         "_sp_agentedebackofficeasignado_value", "_sp_agentedecallcenterasignado_value", "_sp_casooriginal_value",
         "_sp_categoriapqrs_value", "_sp_ciudad_value", "_sp_cliente_value", "_sp_contacto_value",
