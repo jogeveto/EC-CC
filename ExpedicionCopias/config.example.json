@@ -166,12 +166,12 @@
       "incluirCaratula": false,
       "PlantillasEmail": {
         "default": {
-          "asunto": "Entrega de Copias - Entidades Oficiales",
-          "cuerpo": "<html><body><p>Estimado/a,</p><p>Se adjunta la información solicitada.</p><p>La carpeta se encuentra disponible en OneDrive en la siguiente ruta: {onedrive_path}</p><p>Puede acceder a través del siguiente enlace: {link}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+          "asunto": "Entrega de Copias - Entidades Oficiales - Numero de radicado {numero_radicado}",
+          "cuerpo": "<html><body><p>Estimado/a,</p><p>Se adjunta la información solicitada Numero de radicado {numero_radicado}.</p><p>La carpeta se encuentra disponible en OneDrive en la siguiente ruta: {onedrive_path}</p><p>Puede acceder a través del siguiente enlace: {link}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
         },
         "sinAdjuntos": {
-          "asunto": "Notificación - Caso sin documentos disponibles",
-          "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el caso con ID {case_id} y radicado {ticket_number} no tiene documentos disponibles para descargar debido a las reglas de negocio aplicadas.</p><p><strong>Información del caso:</strong></p><ul><li>ID Caso: {case_id}</li><li>Radicado: {ticket_number}</li><li>Matrículas: {matriculas}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
+          "asunto": "Notificación - Caso sin documentos disponibles  - Numero de radicado {numero_radicado}",
+          "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el caso con radicado {numero_radicado} no tiene documentos disponibles para descargar debido a las reglas de negocio aplicadas.</p><p><strong>Información del caso:</strong></p><ul><li>Matrículas: {matriculas}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
         }
       },
       "PlantillaEmailReglasNoCriticas": {
