@@ -568,7 +568,18 @@ class ExpedicionService:
             self.logger.info(f"[CASO {case_id}] PDF unificado creado - Tamaño: {tamanio_mb:.2f} MB")
             
             subcategoria_id = caso.get("_sp_subcategoriapqrs_value", "")
-            email_destino = self._obtener_email_caso(caso, "Copias")
+            email_destino, mensaje_error_email = self._validar_y_obtener_email_destino(caso, "Copias")
+
+            # Validar email antes de continuar
+            if mensaje_error_email:
+                self.logger.warning(f"[CASO {case_id}] {mensaje_error_email}. Email obtenido: '{email_destino}'")
+                # Enviar notificación al responsable
+                self._enviar_email_regla_no_critica(caso, "Copias", f"El caso no tiene un email válido: {mensaje_error_email}")
+                # Agregar a casos_error con estado "No Exitoso"
+                self.casos_error.append({"caso": caso, "estado": "No Exitoso", "mensaje": mensaje_error_email})
+                # Continuar con el siguiente caso
+                return
+
             self.logger.info(f"[CASO {case_id}] Email destino: {email_destino}, Subcategoría: {subcategoria_id}")
             
             if tamanio_mb < 28:
@@ -1127,9 +1138,11 @@ class ExpedicionService:
             error_msg: Mensaje de error
         """
         try:
-            email_destino = self._obtener_email_caso(caso, "Copias")
-            if email_destino:
+            email_destino, mensaje_error_email = self._validar_y_obtener_email_destino(caso, "Copias")
+            if email_destino and not mensaje_error_email:
                 self._enviar_email_error_caso(email_destino, caso, error_msg)
+            else:
+                self.logger.warning(f"[CASO {caso.get('sp_documentoid', 'N/A')}] No se puede enviar email de error: {mensaje_error_email}")
         except Exception as email_error:
             self.logger.error(f"Error enviando email de error: {email_error}")
 
@@ -1527,17 +1540,26 @@ class ExpedicionService:
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
         
-        # emailResponsable ya está obtenido y validado antes del compartir
-        # Reutilizar la misma variable para el envío de email
-        self.logger.info(f"[CASO {case_id}] Enviando email a emailResponsable: {email_responsable}")
+        # Obtener y validar email_destino
+        email_destino, mensaje_error_email = self._validar_y_obtener_email_destino(caso, "CopiasOficiales")
+
+        if mensaje_error_email:
+            error_msg = f"El caso no tiene un email válido: {mensaje_error_email}"
+            self.logger.warning(f"[CASO {case_id}] {error_msg}")
+            # Enviar notificación al responsable
+            self._enviar_email_regla_no_critica(caso, "CopiasOficiales", error_msg)
+            # Lanzar excepción para que se maneje como error no crítico
+            raise ValueError(error_msg)
+
+        self.logger.info(f"[CASO {case_id}] Email destino validado: {email_destino}")
         # Enviar el email
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
             asunto=asunto_procesado,
             cuerpo=cuerpo_con_firma,
-            destinatarios=self._obtener_destinatarios_por_modo([email_responsable])
+            destinatarios=self._obtener_destinatarios_por_modo([email_destino])
         )
-        self.logger.info(f"[CASO {case_id}] Email enviado exitosamente a: {email_responsable}")
+        self.logger.info(f"[CASO {case_id}] Email enviado exitosamente a: {email_destino}")
         
         # Esperar un momento para que el email se guarde en Sent Items
         time.sleep(2)
@@ -2000,22 +2022,43 @@ class ExpedicionService:
 
     def _obtener_email_caso(self, caso: Dict[str, Any], tipo_proceso: str = "Copias") -> str:
         """
-        Obtiene el email del caso según el tipo de proceso.
+        Obtiene el email del caso usando únicamente invt_correoelectronico.
         
         Args:
             caso: Diccionario con información del caso
-            tipo_proceso: Tipo de proceso ("Copias" para particulares, "CopiasOficiales" para oficiales)
+            tipo_proceso: Tipo de proceso (mantenido por compatibilidad, no afecta el resultado)
             
         Returns:
-            Email del caso o cadena vacía si no se encuentra
+            Email del caso (invt_correoelectronico) o cadena vacía si no existe
         """
-        if tipo_proceso == "Copias":
-            # Para particulares: usar sp_correoelectronico
-            return caso.get(CAMPO_EMAIL_PARTICULARES, "") or ""
-        else:
-            # Para oficiales: usar emailResponsable de configuración
-            config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
-            return config_seccion.get("emailResponsable", "") or ""
+        # Siempre usar únicamente invt_correoelectronico, sin fallback
+        return caso.get(CAMPO_EMAIL_CREADOR, "") or ""
+
+    def _validar_y_obtener_email_destino(self, caso: Dict[str, Any], tipo: str) -> tuple[str, str]:
+        """
+        Valida y obtiene el email destino del caso.
+        
+        Args:
+            caso: Diccionario con información del caso
+            tipo: Tipo de proceso ("Copias" o "CopiasOficiales")
+            
+        Returns:
+            Tupla (email, mensaje_error):
+            - email: Email válido o cadena vacía
+            - mensaje_error: "Caso sin email" si está vacío, "Email mal formado" si es inválido, o "" si es válido
+        """
+        case_id = caso.get("sp_documentoid", "N/A")
+        email = self._obtener_email_caso(caso, tipo)
+        
+        # Validar que no esté vacío
+        if not email or not email.strip():
+            return ("", "Caso sin email")
+        
+        # Validar formato con regex
+        if not self._validar_email(email):
+            return ("", "Email mal formado")
+        
+        return (email, "")
 
     def _validar_email(self, email: str) -> bool:
         """
