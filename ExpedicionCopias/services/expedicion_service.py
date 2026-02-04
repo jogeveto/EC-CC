@@ -705,6 +705,13 @@ class ExpedicionService:
         
         usuario_email = self.config.get("GraphAPI", {}).get("user_email", "")
         
+        # Logging justo antes de enviar el email (estado final)
+        self.logger.info(f"[CASO {case_id}] === ESTADO FINAL ANTES DE ENVIAR EMAIL ===")
+        self.logger.info(f"[CASO {case_id}] Asunto final procesado: {asunto_procesado}")
+        self.logger.info(f"[CASO {case_id}] Cuerpo final procesado (primeros 200 chars): {cuerpo_con_firma[:200]}...")
+        self.logger.info(f"[CASO {case_id}] Destinatario: {email_destino}")
+        self.logger.info(f"[CASO {case_id}] === FIN ESTADO FINAL ===")
+        
         # Enviar el email
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
@@ -860,6 +867,14 @@ class ExpedicionService:
         
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
+        
+        # Logging justo antes de enviar el email (estado final)
+        self.logger.info(f"[CASO {case_id}] === ESTADO FINAL ANTES DE ENVIAR EMAIL ===")
+        self.logger.info(f"[CASO {case_id}] Asunto final procesado: {asunto_procesado}")
+        self.logger.info(f"[CASO {case_id}] Cuerpo final procesado (primeros 200 chars): {cuerpo_con_firma[:200]}...")
+        self.logger.info(f"[CASO {case_id}] Destinatario: {email_destino}")
+        self.logger.info(f"[CASO {case_id}] Link OneDrive: {link[:100] if link else 'N/A'}...")
+        self.logger.info(f"[CASO {case_id}] === FIN ESTADO FINAL ===")
         
         # Enviar el email
         self.graph_client.enviar_email(
@@ -1675,11 +1690,179 @@ class ExpedicionService:
             self.logger.warning(f"No se pudo formatear la fecha createdon: {createdon}")
             return ""
 
+    def _extraer_cliente_del_titulo(self, titulo: Optional[str]) -> Optional[str]:
+        """
+        Extrae el nombre del cliente del título del PQRS.
+        
+        Patrón esperado: "Caso {nombre_cliente} {fecha} {hora}"
+        Ejemplos:
+        - "Caso EDISON  RODRIGUEZ HERNANDEZ  9/01/26 2:45 p.m."
+        - "Caso YEAB CAPITAL S.A.S  9/01/26 3:01 p.m."
+        - "Caso MARTHA ESTRADA  9/01/26 2:36 p.m."
+        
+        Args:
+            titulo: Campo sp_titulopqrs del PQRS
+        
+        Returns:
+            Nombre del cliente extraído o None si no se puede extraer
+        """
+        if not titulo:
+            self.logger.debug(f"_extraer_cliente_del_titulo: Título vacío o None")
+            return None
+        
+        # Patrón: "Caso " seguido de texto hasta encontrar fecha (formato dd/mm/yy o dd/mm/yyyy)
+        # El patrón captura todo después de "Caso " hasta encontrar un patrón de fecha
+        patron = r"Caso\s+(.+?)\s+\d{1,2}/\d{1,2}/\d{2,4}"
+        match = re.search(patron, titulo, re.IGNORECASE)
+        
+        if match:
+            nombre_cliente = match.group(1).strip()
+            # Limpiar espacios múltiples
+            nombre_cliente = re.sub(r'\s+', ' ', nombre_cliente)
+            self.logger.debug(f"_extraer_cliente_del_titulo: Cliente extraído '{nombre_cliente}' del título '{titulo}'")
+            return nombre_cliente if nombre_cliente else None
+        
+        self.logger.debug(f"_extraer_cliente_del_titulo: No se encontró match en título '{titulo}' con patrón '{patron}'")
+        return None
+
+    def _extraer_variables_plantilla(self, plantilla: str) -> List[str]:
+        """
+        Extrae todas las variables entre corchetes de la plantilla usando expresiones regulares.
+        
+        Args:
+            plantilla: Texto de la plantilla con variables entre corchetes
+            
+        Returns:
+            Lista de variables encontradas (sin los corchetes)
+        """
+        # Patrón regex para encontrar todas las variables entre corchetes: [variable]
+        patron = r'\[([^\]]+)\]'
+        variables_encontradas = re.findall(patron, plantilla)
+        # Eliminar duplicados manteniendo el orden
+        return list(dict.fromkeys(variables_encontradas))
+
+    def _obtener_valor_variable(self, nombre_variable: str, caso: Dict[str, Any], link_onedrive: str = "") -> tuple[str, str]:
+        """
+        Obtiene el valor de una variable usando la lógica de múltiples campos alternativos.
+        Sigue el patrón de pruebas-azure-connections usando .get() con or.
+        
+        Args:
+            nombre_variable: Nombre de la variable (sin corchetes)
+            caso: Diccionario con información del caso PQRS
+            link_onedrive: Enlace de OneDrive (opcional)
+            
+        Returns:
+            Tupla (valor, campo_usado) donde campo_usado indica qué campo(s) se usaron
+        """
+        nombre_variable_lower = nombre_variable.lower()
+        
+        # [Nombre de la sociedad] - usar solo _extraer_cliente_del_titulo (sin fallback)
+        if "nombre de la sociedad" in nombre_variable_lower:
+            titulo = caso.get("sp_titulopqrs")
+            case_id = caso.get("sp_documentoid", "N/A")
+            
+            # Logging para debugging
+            self.logger.info(f"[CASO {case_id}] [Nombre de la sociedad] - sp_titulopqrs disponible: '{titulo}'")
+            
+            cliente_del_titulo = self._extraer_cliente_del_titulo(titulo)
+            
+            if cliente_del_titulo:
+                self.logger.info(f"[CASO {case_id}] [Nombre de la sociedad] - Cliente extraído del título: '{cliente_del_titulo}'")
+                return (cliente_del_titulo, "sp_titulopqrs (extraído)")
+            
+            # Si no se puede extraer del título, retornar vacío (sin fallback)
+            self.logger.warning(f"[CASO {case_id}] [Nombre de la sociedad] - No se pudo extraer del título (título: '{titulo}'), retornando vacío")
+            return ("", "sp_titulopqrs (extraído)")
+        
+        # [Número PQRS] - usar método existente
+        if "número pqrs" in nombre_variable_lower or "numero pqrs" in nombre_variable_lower:
+            valor = self._obtener_numero_radicado(caso, "")
+            return (valor, "sp_name (via _obtener_numero_radicado)")
+        
+        # [Fecha hoy] - fecha calculada
+        if "fecha hoy" in nombre_variable_lower:
+            valor = self._formatear_fecha_hoy_extendida()
+            return (valor, "fecha_calculada")
+        
+        # [CLIENTE] - usar contacto_expandido obtenido con la misma lógica del proyecto de referencia
+        if nombre_variable == "CLIENTE":
+            case_id = caso.get("sp_documentoid", "N/A")
+            
+            # Intentar obtener contacto_expandido del objeto caso si está disponible
+            contacto_expandido = caso.get("contacto_expandido")
+            
+            # Si no está disponible, intentar obtenerlo del CRM
+            if not contacto_expandido:
+                tiene_contacto = bool(caso.get("_sp_contacto_value"))
+                
+                if tiene_contacto:
+                    # Posibles nombres de entidad para contacto (misma lógica del proyecto de referencia)
+                    posibles_entidades_contacto = ["sp_contacto", "contact"]
+                    pqrs_id = caso.get("sp_documentoid")
+                    
+                    if pqrs_id:
+                        # Intentar expansión individual del contacto
+                        for entidad in posibles_entidades_contacto:
+                            try:
+                                params_individual = {
+                                    "$expand": entidad,
+                                    "$select": "*"
+                                }
+                                response_individual = self.crm_client.get(
+                                    f"/{self.crm_client.ENTITY_NAME}({pqrs_id})",
+                                    params=params_individual
+                                )
+                                if entidad in response_individual:
+                                    contacto_expandido = response_individual[entidad]
+                                    self.logger.info(f"[CASO {case_id}] [CLIENTE] - Contacto expandido usando {entidad}")
+                                    break
+                            except Exception as e:
+                                self.logger.debug(f"[CASO {case_id}] [CLIENTE] - Error intentando expandir con {entidad}: {str(e)[:100]}")
+                                continue
+            
+            # Extraer el nombre del contacto
+            if contacto_expandido:
+                if isinstance(contacto_expandido, dict):
+                    nombre_contacto = contacto_expandido.get("fullname") or contacto_expandido.get("sp_name") or contacto_expandido.get("name") or ""
+                    if nombre_contacto:
+                        self.logger.info(f"[CASO {case_id}] [CLIENTE] - Contacto encontrado: '{nombre_contacto}'")
+                        return (nombre_contacto, "contacto_expandido")
+            
+            # Si no se encuentra, retornar vacío (sin fallback)
+            self.logger.warning(f"[CASO {case_id}] [CLIENTE] - No se pudo obtener contacto expandido, retornando vacío")
+            return ("", "contacto_expandido")
+        
+        # [Correo electrónico] o [Correo Electrónico] - buscar en múltiples campos
+        if "correo electrónico" in nombre_variable_lower or "correo electronico" in nombre_variable_lower:
+            valor = caso.get("invt_correoelectronico") or caso.get("sp_correoelectronico") or ""
+            campo_usado = "invt_correoelectronico" if caso.get("invt_correoelectronico") else ("sp_correoelectronico" if caso.get("sp_correoelectronico") else "ninguno")
+            return (valor, campo_usado)
+        
+        # [Fecha de ingreso de la solicitud] - fecha formateada
+        if "fecha de ingreso" in nombre_variable_lower:
+            createdon = caso.get("createdon", "")
+            valor = self._formatear_fecha_createdon(createdon)
+            return (valor, "createdon (formateado)")
+        
+        # [Enlace Onedrive.pdf] - enlace de OneDrive
+        if "enlace onedrive" in nombre_variable_lower or "enlace onedrive.pdf" in nombre_variable_lower:
+            valor = link_onedrive if link_onedrive else ""
+            return (valor, "link_onedrive" if link_onedrive else "ninguno")
+        
+        # [Fecha de respuesta] - fecha calculada
+        if "fecha de respuesta" in nombre_variable_lower:
+            valor = self._formatear_fecha_hoy_corta()
+            return (valor, "fecha_calculada")
+        
+        # Variable no reconocida
+        return ("", "no_mapeada")
+
     def _reemplazar_variables_plantilla(
         self, plantilla: str, caso: Dict[str, Any], link_onedrive: str = ""
     ) -> str:
         """
         Reemplaza las variables entre corchetes en la plantilla según las reglas de oro.
+        Extrae dinámicamente todas las variables y aplica la lógica de múltiples campos alternativos.
         
         Args:
             plantilla: Texto de la plantilla con variables entre corchetes
@@ -1692,50 +1875,49 @@ class ExpedicionService:
         case_id = caso.get("sp_documentoid", "N/A")
         resultado = plantilla
         
-        # Logging de valores del caso antes del reemplazo
+        # Extraer dinámicamente todas las variables entre corchetes
+        variables_encontradas = self._extraer_variables_plantilla(plantilla)
+        
+        # Logging: Valores del caso antes del reemplazo
         self.logger.info(f"[CASO {case_id}] Valores del caso antes de reemplazar variables:")
         self.logger.info(f"[CASO {case_id}]   - sp_nombredelaempresa: '{caso.get('sp_nombredelaempresa', '')}'")
+        self.logger.info(f"[CASO {case_id}]   - sp_titulopqrs: '{caso.get('sp_titulopqrs', '')}'")
         self.logger.info(f"[CASO {case_id}]   - invt_correoelectronico: '{caso.get('invt_correoelectronico', '')}'")
         self.logger.info(f"[CASO {case_id}]   - sp_correoelectronico: '{caso.get('sp_correoelectronico', '')}'")
         self.logger.info(f"[CASO {case_id}]   - sp_name: '{caso.get('sp_name', '')}'")
         
-        # [Nombre de la sociedad] = sp_nombredelaempresa (siempre existe, obligatorio en CRM)
-        nombre_sociedad = caso.get("sp_nombredelaempresa", "") or ""
-        self.logger.info(f"[CASO {case_id}] Variable [Nombre de la sociedad]: '{nombre_sociedad}' (sp_nombredelaempresa)")
-        resultado = resultado.replace(VARIABLE_NOMBRE_SOCIEDAD, nombre_sociedad)
+        # Logging: Variables encontradas en la plantilla
+        if variables_encontradas:
+            self.logger.info(f"[CASO {case_id}] Variables encontradas en la plantilla ({len(variables_encontradas)}): {', '.join(variables_encontradas)}")
+        else:
+            self.logger.info(f"[CASO {case_id}] No se encontraron variables entre corchetes en la plantilla")
         
-        # [Número PQRS] = sp_name
-        numero_pqrs = self._obtener_numero_radicado(caso, "")
-        self.logger.info(f"[CASO {case_id}] Variable [Número PQRS]: '{numero_pqrs}' (sp_name)")
-        resultado = resultado.replace(VARIABLE_NUMERO_PQRS, numero_pqrs)
+        # Procesar cada variable encontrada
+        variables_no_mapeadas = []
+        for variable in variables_encontradas:
+            # Obtener valor usando la lógica de múltiples campos alternativos
+            valor, campo_usado = self._obtener_valor_variable(variable, caso, link_onedrive)
+            
+            # Logging detallado de cada variable
+            if campo_usado == "no_mapeada":
+                self.logger.warning(f"[CASO {case_id}] Variable [{variable}]: NO MAPEADA - no se encontró lógica de reemplazo")
+                variables_no_mapeadas.append(variable)
+            else:
+                if valor:
+                    self.logger.info(f"[CASO {case_id}] Variable [{variable}]: '{valor}' (campo usado: {campo_usado})")
+                else:
+                    self.logger.warning(f"[CASO {case_id}] Variable [{variable}]: VACÍA (campo usado: {campo_usado})")
+            
+            # Reemplazar la variable en la plantilla (con corchetes)
+            variable_con_corchetes = f"[{variable}]"
+            resultado = resultado.replace(variable_con_corchetes, valor)
         
-        # [Fecha hoy] = fecha de hoy en formato 'dd de mm de YYYY'
-        fecha_hoy_extendida = self._formatear_fecha_hoy_extendida()
-        resultado = resultado.replace(VARIABLE_FECHA_HOY, fecha_hoy_extendida)
+        # Logging: Variables no mapeadas
+        if variables_no_mapeadas:
+            self.logger.warning(f"[CASO {case_id}] Variables que no se pudieron mapear: {', '.join(variables_no_mapeadas)}")
         
-        # [CLIENTE] = sp_nombredelaempresa (opcional)
-        self.logger.info(f"[CASO {case_id}] Variable [CLIENTE]: '{nombre_sociedad}' (sp_nombredelaempresa - opcional)")
-        resultado = resultado.replace(VARIABLE_CLIENTE, nombre_sociedad)
-        
-        # [Correo electrónico] = invt_correoelectronico (para plantillas, siempre viene)
-        correo_electronico = caso.get("invt_correoelectronico", "") or ""
-        self.logger.info(f"[CASO {case_id}] Variable [Correo electrónico]: '{correo_electronico}' (invt_correoelectronico)")
-        resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO, correo_electronico)
-        resultado = resultado.replace(VARIABLE_CORREO_ELECTRONICO_VARIANTE, correo_electronico)  # Variante con mayúscula
-        
-        # [Fecha de ingreso de la solicitud] = createdon (solo fecha sin hora)
-        createdon = caso.get("createdon", "")
-        fecha_ingreso = self._formatear_fecha_createdon(createdon)
-        resultado = resultado.replace(VARIABLE_FECHA_INGRESO, fecha_ingreso)
-        
-        # [Enlace Onedrive.pdf] = Enlace de oneDrive (ya se maneja con {link})
-        if link_onedrive:
-            resultado = resultado.replace(VARIABLE_ENLACE_ONEDRIVE, link_onedrive)
-            resultado = resultado.replace(VARIABLE_ENLACE_ONEDRIVE_VARIANTE, link_onedrive)  # Variante con caracteres especiales
-        
-        # [Fecha de respuesta] = fecha de hoy en formato 'dd/mm/YYYY'
-        fecha_respuesta = self._formatear_fecha_hoy_corta()
-        resultado = resultado.replace(VARIABLE_FECHA_RESPUESTA, fecha_respuesta)
+        # Logging: Plantilla final después del reemplazo
+        self.logger.info(f"[CASO {case_id}] Plantilla después del reemplazo (primeros 200 chars): {resultado[:200]}...")
         
         return resultado
 
