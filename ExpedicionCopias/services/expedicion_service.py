@@ -338,7 +338,7 @@ class ExpedicionService:
             cuerpo_con_firma = self._agregar_firma(cuerpo)
             
             # Enviar email
-            destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+            destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
@@ -393,9 +393,9 @@ class ExpedicionService:
             
             # Agregar firma al cuerpo
             cuerpo_con_firma = self._agregar_firma(cuerpo)
-            
+
             # Enviar email
-            destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+            destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
@@ -991,7 +991,7 @@ class ExpedicionService:
         cuerpo_con_firma = self._agregar_firma(cuerpo)
         
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
-        destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+        destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
         
         try:
             self.graph_client.enviar_email(
@@ -1051,7 +1051,7 @@ class ExpedicionService:
         cuerpo_con_firma = self._agregar_firma(cuerpo)
         
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
-        destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+        destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
         
         try:
             self.graph_client.enviar_email(
@@ -1116,7 +1116,7 @@ class ExpedicionService:
         cuerpo_con_firma = self._agregar_firma(cuerpo)
         
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
-        destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+        destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
         
         try:
             self.graph_client.enviar_email(
@@ -2429,7 +2429,7 @@ class ExpedicionService:
             cuerpo_con_firma = self._agregar_firma(cuerpo)
             
             # Obtener destinatarios según modo QA/PROD
-            destinatarios = self._obtener_destinatarios_por_modo([email_responsable])
+            destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
             
             # Enviar email con adjunto
             self.graph_client.enviar_email(

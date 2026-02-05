@@ -73,7 +73,7 @@
         { "tipoDocumento": "STICKER", "actoRegistro": "" },
         { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
       ],
-      "emailResponsable": "john.velasquez@trycore.com.co",
+      "emailResponsable": [],
       "incluirCaratula": false,
       "PlantillasEmail": {
         "default": {
