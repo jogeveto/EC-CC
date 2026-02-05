@@ -1,0 +1,142 @@
+{
+  "Dynamics365": {
+    "tenant_id": "238668b4-7f1d-4ba6-abd5-02fcf18d1bc4",
+    "base_url": "https://ccma.crm2.dynamics.com/api/data/v9.2",
+    "client_id": "54b07dd0-0c8b-4a77-997e-40f3b0eb1ca3"
+  },
+  "GraphAPI": {
+    "tenant_id": "238668b4-7f1d-4ba6-abd5-02fcf18d1bc4",
+    "client_id": "0bbdb064-113e-4c34-a045-56972a17a92c",
+    "user_email": "TRYCORE@camaramedellin.com.co"
+  },
+  "DocuWare": {
+    "serverUrl": "https://sgd.camaracom.loc",
+    "username": "usrbot",
+    "organizationName": "Cámara de Comercio de Medellín para Antioquia",
+    "platform": "DocuWare/Platform",
+    "verifySSL": false,
+    "fileCabinetName": "Registro Público",
+    "searchDialogName": "Consulta Escáner"
+  },
+  "Database": {
+    "server": "localhost,1433",
+    "database": "RPA_Automatizacion",
+    "username": "sa",
+    "db_type": "sqlserver",
+    "schema": "ExpedicionCopiasDbo"
+  },
+  "ReglasNegocio": {
+    "CopiasOficiales": {
+      "Subcategorias": ["52955644-6ad7-f011-8543-6045bd3c5e2e","5c59f302-6fd7-f011-8543-6045bd3c5e2e"],
+      "Especificaciones": ["63bac8be-07c7-f011-bbd3-00224836fe8e"],
+      "FranjasHorarias": [
+        {
+          "inicio": "08:00",
+          "fin": "09:00"
+        },
+        {
+          "inicio": "14:00",
+          "fin": "15:00"
+        }
+      ],
+      "ExcepcionesDescarga": [
+        { "tipoDocumento": "CITACIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "SOLICITUD ENTREGA DE DOCUMENTOS Y LIBROS SIN COLILLA" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "DESISTIMIENTO EXPRESO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "ACEPTACIONES" },
+        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "CERTIFICADO ESPECIAL NO INMEDIATO" },
+        { "tipoDocumento": "COMUNICACIÓN CÁMARA", "actoRegistro": "" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VERIFICACIÓN IDENTIDAD" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "CONSTANCIA DE ENVÍO" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VALIDACIÓN SIPREF" },
+        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "NOTIFICACIÓN DE PLANO" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RENOVACIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "MODIFICACION RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "PROPONENTE RENOVACIÓN" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "RENOVACIÓN RUP" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CONTRATOS MULTAS SANCIONES" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Actualización de la inscripción en el Registro Único de Proponentes" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CESACIÓN DE EFECTOS RUP" },
+        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "INSCRIPCIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "INSCRIPCIÓN RUP" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RUE CAMBIO DOMICILIO PROPONENTES (Cuando se va de la Cámara)" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Renovación de la inscripción en el Registro único de Proponentes" },
+        { "tipoDocumento": "FORMULARIO", "actoRegistro": "CANCELACIÓN VOLUNTARIA" },
+        { "tipoDocumento": "PROPONENTE REVOCACIÓN", "actoRegistro": "PROPONENTE REVOCACIÓN" },
+        { "tipoDocumento": "INFORMATIVO", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "NOTIFICACIÓN / RECIBO DE CAJA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "OFICIO", "actoRegistro": "INFORMATIVO" },
+        { "tipoDocumento": "RESOLUCIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "SELLO EJECUTORIA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
+        { "tipoDocumento": "LABEL", "actoRegistro": "" },
+        { "tipoDocumento": "STICKER", "actoRegistro": "" },
+        { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
+      ],
+      "emailResponsable": "john.velasquez@trycore.com.co",
+      "incluirCaratula": false,
+      "PlantillasEmail": {
+        "default": {
+          "asunto": "Entrega de Copias - Entidades Oficiales - Numero de radicado {numero_radicado}",
+          "cuerpo": "<html><body><p>Estimado/a,</p><p>Se adjunta la información solicitada Numero de radicado {numero_radicado}.</p><p>La carpeta se encuentra disponible en OneDrive en la siguiente ruta: {onedrive_path}</p><p>Puede acceder a través del siguiente enlace: {link}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+        },
+        "sinAdjuntos": {
+          "asunto": "Notificación - Caso sin documentos disponibles  - Numero de radicado {numero_radicado}",
+          "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el caso con radicado {numero_radicado} no tiene documentos disponibles para descargar debido a las reglas de negocio aplicadas.</p><p><strong>Información del caso:</strong></p><ul><li>Matrículas: {matriculas}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
+        }
+      },
+      "PlantillaEmailReglasNoCriticas": {
+        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico",
+        "cuerpo": "<html><body><p>Cordial saludo,</p><p>Por medio de la presente, notificamos la siguiente novedad identificada en el proceso de expedición de copias</p><p>[Novedad identificada]</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
+      }
+    }
+  },
+  "OneDrive": {
+    "carpetaBase": "/ExpedicionCopias"
+  },
+  "Reportes": {
+    "emailsAdministradores": ["john.velasquez@trycore.com.co"],
+    "codigoAsistente": "R_CCMA_ExpedicionCopias",
+    "usuarioRedBR": "usuario.red",
+    "numeroMaquinaBR": "MAQUINA-001",
+    "PlantillaEmail": {
+      "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Fin de ejecución",
+      "cuerpo": "<html><body><p>Cordial saludo,</p><p>Se informa que el proceso de expedición de copías fue finalizdo el {fecha_fin}.</p><p>Ver, resultado del proceso:</p><p>[Reporte de gestión]</p><p>Muchas gracias.</p></body></html>"
+    }
+  },
+  "Globales": {
+    "RutaBaseProyecto": "C:\\Users\\JohnVelasquezTrycore\\sourcecode\\rocketbot-projects\\CCMA-ExpedicionCopiasParticulares",
+    "modo": "QA",
+    "emailQa": "john.velasquez@trycore.com.co"
+  },
+  "Logs": {
+    "RutaLogAuditoria": "logs",
+    "NombreLogAuditoria": "expedicion_copias.log",
+    "NivelLog": "INFO"
+  },
+  "Notificaciones": {
+    "InicioEjecucion": {
+      "Copias": {
+        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Inicio de ejecución",
+        "cuerpo": "<html><body><p>Cordial Saludo,</p><p>Se informa que el proceso de expedición de copias ha iniciado su ejecución.</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
+      },
+      "CopiasOficiales": {
+        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Inicio de ejecución",
+        "cuerpo": "<html><body><p>Cordial Saludo,</p><p>Se informa que el proceso de expedición de copias ha iniciado su ejecución.</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
+      }
+    },
+    "ErrorConexion": {
+      "Copias": {
+        "asunto": "ERROR - RPA_Expedición de copias PARTICULARES - Fallo de conexión",
+        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias PARTICULARES no pudo iniciar su ejecución debido a un fallo en la conexión con {servicio_fallido}.</p><p><strong>Fecha y hora del error:</strong> {fecha_error}</p><p><strong>Servicio con fallo:</strong> {servicio_fallido}</p><p><strong>Mensaje de error:</strong></p><pre>{mensaje_error}</pre><p>Por favor, verifique la configuración y el estado del servicio {servicio_fallido}.</p><p>El bot no continuará con el procesamiento hasta que se resuelva el problema de conexión.</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+      },
+      "CopiasOficiales": {
+        "asunto": "ERROR - RPA_Expedición de copias OFICIALES - Fallo de conexión",
+        "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el bot de expedición de copias OFICIALES no pudo iniciar su ejecución debido a un fallo en la conexión con {servicio_fallido}.</p><p><strong>Fecha y hora del error:</strong> {fecha_error}</p><p><strong>Servicio con fallo:</strong> {servicio_fallido}</p><p><strong>Mensaje de error:</strong></p><pre>{mensaje_error}</pre><p>Por favor, verifique la configuración y el estado del servicio {servicio_fallido}.</p><p>El bot no continuará con el procesamiento hasta que se resuelva el problema de conexión.</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
+      }
+    }
+  },
+  "Firma": {
+    "texto": "<div style='font-family: Arial, Helvetica, sans-serif; font-size: 13px; line-height: 1.4; color: #333333;'><table border='0' cellpadding='0' cellspacing='0' style='max-width: 600px; background-color: transparent;'><tr><td valign='middle' style='padding-right: 20px; border-right: 2px solid #e0e0e0;'><img src='https://camaracomerciomedellin-f2723.web.app/assets/img/ccma/logoCamaraComercioMed.png' alt='Cámara de Comercio de Medellín' width='300' style='display: block; width: 300px; height: auto; border: 0;'></td><td valign='middle' style='padding-left: 20px;'><b style='font-size: 14px; color: #000000;'>Cámara de Comercio de Medellín para Antioquia</b><div style='margin-top: 8px; margin-bottom: 8px; font-size: 12px; color: #555555;'>Línea de Servicio al Cliente:<br>Desde Medellín: <a href='tel:+576044449758' style='color: #555555; text-decoration: none;'>(604) 444 9758</a><br>En el resto del país: <a href='tel:018000412000' style='color: #555555; text-decoration: none;'>01 8000 41 2000</a></div><a href='https://www.camaramedellin.com' target='_blank' style='color: #0000FF; text-decoration: none; font-weight: bold; font-size: 12px;'>www.camaramedellin.com</a></td></tr></table></div>"
+  }
+}

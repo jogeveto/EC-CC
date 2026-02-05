@@ -1,8 +1,8 @@
 {
   "Dynamics365": {
     "tenant_id": "238668b4-7f1d-4ba6-abd5-02fcf18d1bc4",
-    "base_url": "https://ccmadev.crm2.dynamics.com/api/data/v9.2",
-    "client_id": "768980cb-196c-4062-b193-a31df237a61c"
+    "base_url": "https://ccma.crm2.dynamics.com/api/data/v9.2",
+    "client_id": "54b07dd0-0c8b-4a77-997e-40f3b0eb1ca3"
   },
   "GraphAPI": {
     "tenant_id": "238668b4-7f1d-4ba6-abd5-02fcf18d1bc4",
@@ -63,7 +63,7 @@
           }
         }
       ],
-      "Especificaciones": ["63bac8be-07c7-f011-bbd3-00224836fe8e", "0f0e25cb-07c7-f011-bbd3-00224836fe8e"],
+      "Especificaciones": ["63bac8be-07c7-f011-bbd3-00224836fe8e"],
       "FranjasHorarias": [
         {
           "inicio": "09:00",
@@ -108,83 +108,19 @@
         { "tipoDocumento": "STICKER", "actoRegistro": "" },
         { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
       ],
-      "emailResponsable": "john.velasquez@trycore.com.co",
+      "emailResponsable": [""],
       "incluirCaratula": false,
       "PlantillaEmailReglasNoCriticas": {
         "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico",
         "cuerpo": "<html><body><p>Cordial saludo,</p><p>Por medio de la presente, notificamos la siguiente novedad identificada en el proceso de expedición de copias</p><p>[Novedad identificada]</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
       }
-    },
-    "CopiasOficiales": {
-      "Subcategorias": ["6f551f77-0ac7-f011-bbd3-00224836fe8e"],
-      "Especificaciones": ["63bac8be-07c7-f011-bbd3-00224836fe8e","0f0e25cb-07c7-f011-bbd3-00224836fe8e"],
-      "FranjasHorarias": [
-        {
-          "inicio": "08:00",
-          "fin": "09:00"
-        },
-        {
-          "inicio": "14:00",
-          "fin": "15:00"
-        }
-      ],
-      "ExcepcionesDescarga": [
-        { "tipoDocumento": "CITACIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
-        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "SOLICITUD ENTREGA DE DOCUMENTOS Y LIBROS SIN COLILLA" },
-        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "DESISTIMIENTO EXPRESO" },
-        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "INFORMATIVO" },
-        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "ACEPTACIONES" },
-        { "tipoDocumento": "COMUNICACIÓN", "actoRegistro": "CERTIFICADO ESPECIAL NO INMEDIATO" },
-        { "tipoDocumento": "COMUNICACIÓN CÁMARA", "actoRegistro": "" },
-        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VERIFICACIÓN IDENTIDAD" },
-        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "CONSTANCIA DE ENVÍO" },
-        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "VALIDACIÓN SIPREF" },
-        { "tipoDocumento": "CONSTANCIA", "actoRegistro": "NOTIFICACIÓN DE PLANO" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RENOVACIÓN RUP" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "MODIFICACION RUP" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "PROPONENTE RENOVACIÓN" },
-        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "RENOVACIÓN RUP" },
-        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CONTRATOS MULTAS SANCIONES" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Actualización de la inscripción en el Registro Único de Proponentes" },
-        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "CESACIÓN DE EFECTOS RUP" },
-        { "tipoDocumento": "INSCRIPCIÓN", "actoRegistro": "INSCRIPCIÓN RUP" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "INSCRIPCIÓN RUP" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "RUE CAMBIO DOMICILIO PROPONENTES (Cuando se va de la Cámara)" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "Renovación de la inscripción en el Registro único de Proponentes" },
-        { "tipoDocumento": "FORMULARIO", "actoRegistro": "CANCELACIÓN VOLUNTARIA" },
-        { "tipoDocumento": "PROPONENTE REVOCACIÓN", "actoRegistro": "PROPONENTE REVOCACIÓN" },
-        { "tipoDocumento": "INFORMATIVO", "actoRegistro": "INFORMATIVO" },
-        { "tipoDocumento": "NOTIFICACIÓN / RECIBO DE CAJA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
-        { "tipoDocumento": "OFICIO", "actoRegistro": "INFORMATIVO" },
-        { "tipoDocumento": "RESOLUCIÓN", "actoRegistro": "DESISTIMIENTO TÁCITO" },
-        { "tipoDocumento": "SELLO EJECUTORIA", "actoRegistro": "DESISTIMIENTO TÁCITO" },
-        { "tipoDocumento": "LABEL", "actoRegistro": "" },
-        { "tipoDocumento": "STICKER", "actoRegistro": "" },
-        { "tipoDocumento": "FORMATO EMPRESA FAMILIAR", "actoRegistro": "ANEXO" }
-      ],
-      "emailResponsable": "john.velasquez@trycore.com.co",
-      "incluirCaratula": false,
-      "PlantillasEmail": {
-        "default": {
-          "asunto": "Entrega de Copias - Entidades Oficiales - Numero de radicado {numero_radicado}",
-          "cuerpo": "<html><body><p>Estimado/a,</p><p>Se adjunta la información solicitada Numero de radicado {numero_radicado}.</p><p>La carpeta se encuentra disponible en OneDrive en la siguiente ruta: {onedrive_path}</p><p>Puede acceder a través del siguiente enlace: {link}</p><p>Saludos,<br>Equipo CCMA</p></body></html>"
-        },
-        "sinAdjuntos": {
-          "asunto": "Notificación - Caso sin documentos disponibles  - Numero de radicado {numero_radicado}",
-          "cuerpo": "<html><body><p>Estimado/a Responsable,</p><p>Se informa que el caso con radicado {numero_radicado} no tiene documentos disponibles para descargar debido a las reglas de negocio aplicadas.</p><p><strong>Información del caso:</strong></p><ul><li>Matrículas: {matriculas}</li></ul><p>Saludos,<br>Equipo CCMA</p></body></html>"
-        }
-      },
-      "PlantillaEmailReglasNoCriticas": {
-        "asunto": "IMPORTANTE EXPEDICIÓN DE COPIAS - Punto de control crítico",
-        "cuerpo": "<html><body><p>Cordial saludo,</p><p>Por medio de la presente, notificamos la siguiente novedad identificada en el proceso de expedición de copias</p><p>[Novedad identificada]</p><p>Esta es una notificación automática; por favor, no responda a este correo.</p><p>Agradecemos su comprensión.</p></body></html>"
-      }
-    }
+    }    
   },
   "OneDrive": {
     "carpetaBase": "/ExpedicionCopias"
   },
   "Reportes": {
-    "emailsAdministradores": ["john.velasquez@trycore.com.co"],
+    "emailsAdministradores": [""],
     "codigoAsistente": "R_CCMA_ExpedicionCopias",
     "usuarioRedBR": "usuario.red",
     "numeroMaquinaBR": "MAQUINA-001",
@@ -196,7 +132,7 @@
   "Globales": {
     "RutaBaseProyecto": "C:\\Users\\JohnVelasquezTrycore\\sourcecode\\rocketbot-projects\\CCMA-ExpedicionCopiasParticulares",
     "modo": "QA",
-    "emailQa": "john.velasquez@trycore.com.co"
+    "emailQa": ""
   },
   "Logs": {
     "RutaLogAuditoria": "logs",
