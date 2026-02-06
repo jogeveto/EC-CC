@@ -1601,9 +1601,11 @@ class ExpedicionService:
             error_msg: Mensaje de error
         """
         try:
-            email_destino = self._obtener_email_creador(caso)
-            if email_destino:
+            email_destino, mensaje_error_email = self._validar_y_obtener_email_destino(caso, "CopiasOficiales")
+            if email_destino and not mensaje_error_email:
                 self._enviar_email_error_caso(email_destino, caso, error_msg)
+            else:
+                self.logger.warning(f"[CASO {caso.get('sp_documentoid', 'N/A')}] No se puede enviar email de error: {mensaje_error_email}")
         except Exception as email_error:
             self.logger.error(f"Error enviando email de error: {email_error}")
 

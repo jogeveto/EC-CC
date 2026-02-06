@@ -2,7 +2,8 @@
 import re
 from typing import Dict, Any, Optional, Tuple
 from ExpedicionCopias.core.constants import (
-    CAMPO_RADICADO_PRINCIPAL, CAMPO_EMAIL_PARTICULARES, CAMPO_MATRICULAS,
+    CAMPO_RADICADO_PRINCIPAL, CAMPO_EMAIL_PARTICULARES, CAMPO_EMAIL_CREADOR,
+    CAMPO_MATRICULAS,
     MSG_EMAIL_VACIO, MSG_EMAIL_INVALIDO, MSG_RADICADO_NO_EXTRAIDO,
     MSG_MATRICULAS_NO_EXTRAIDAS, MSG_MATRICULAS_NO_VALIDAS
 )
@@ -47,22 +48,26 @@ class NonCriticalRulesValidator:
         """
         case_id = caso.get("sp_documentoid", "N/A")
         
-        # Regla 1: Validar formato de email (solo en modo PROD)
+        # Regla 1: Validar formato de email (solo en modo PROD y para CopiasOficiales)
         modo = self.config.get("Globales", {}).get("modo", "PROD")
-        if modo.upper() == "PROD":
-            email = caso.get(CAMPO_EMAIL_PARTICULARES, "").strip()
+        if modo.upper() == "PROD" and tipo == "CopiasOficiales":
+            campo_email = CAMPO_EMAIL_CREADOR
+            email_raw = caso.get(campo_email)
+            email = email_raw.strip() if email_raw else ""
             if not email:
-                return (False, MSG_EMAIL_VACIO)
+                return (False, f"El campo {campo_email} está vacío. Este es el email de respuesta final cuando mode=PROD.")
             if not self._validar_formato_email(email):
-                return (False, MSG_EMAIL_INVALIDO.format(email=email))
+                return (False, f"El email {campo_email} '{email}' no tiene un formato válido. Este es el email de respuesta final cuando mode=PROD.")
 
         # Regla 2: Validar presencia de número de radicado (sp_name)
-        sp_name = caso.get(CAMPO_RADICADO_PRINCIPAL, "").strip()
+        sp_name_raw = caso.get(CAMPO_RADICADO_PRINCIPAL)
+        sp_name = sp_name_raw.strip() if sp_name_raw else ""
         if not sp_name:
             return (False, MSG_RADICADO_NO_EXTRAIDO)
 
         # Regla 3: Validar presencia de matrículas
-        matriculas_str = caso.get(CAMPO_MATRICULAS, "").strip()
+        matriculas_raw = caso.get(CAMPO_MATRICULAS)
+        matriculas_str = matriculas_raw.strip() if matriculas_raw else ""
         if not matriculas_str:
             return (False, MSG_MATRICULAS_NO_EXTRAIDAS)
         
