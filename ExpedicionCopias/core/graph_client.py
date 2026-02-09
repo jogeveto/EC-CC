@@ -2,11 +2,13 @@
 import requests
 import time
 import re
+import math
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Any, List, Dict, Optional
 from html import unescape
 from html.parser import HTMLParser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ExpedicionCopias.core.auth import AzureAuthenticator
 from shared.utils.logger import get_logger
@@ -18,6 +20,13 @@ class GraphClient:
 
     BASE_URL = "https://graph.microsoft.com/v1.0"
 
+    # Umbral para usar upload sessions en lugar de PUT simple (4 MB)
+    UPLOAD_SESSION_THRESHOLD = 4 * 1024 * 1024
+    # Tamaño de chunk para upload sessions (10 MB, debe ser múltiplo de 320 KB)
+    UPLOAD_CHUNK_SIZE = 10 * 320 * 1024  # 3,200 KB = ~3.125 MB por chunk
+    # Máximo de workers para subida en paralelo
+    MAX_UPLOAD_WORKERS = 4
+
     def __init__(self, authenticator: AzureAuthenticator) -> None:
         """
         Inicializa el cliente con un autenticador.
@@ -26,20 +35,18 @@ class GraphClient:
             authenticator: Instancia de AzureAuthenticator
         """
         self.authenticator = authenticator
-        self._token: str | None = None
         self.logger = get_logger("GraphClient")
         self._carpetas_creadas: set[str] = set()  # Cache de carpetas ya creadas
 
     def _get_token(self) -> str:
         """
-        Obtiene un token válido (reutiliza si está en caché).
+        Obtiene un token válido. Siempre solicita al authenticator, que internamente
+        maneja el cache y la renovación automática del token via Azure SDK.
 
         Returns:
             Token de acceso
         """
-        if self._token is None:
-            self._token = self.authenticator.get_token()
-        return self._token
+        return self.authenticator.get_token()
 
     def _get_headers(self) -> dict[str, str]:
         """
@@ -248,7 +255,8 @@ class GraphClient:
         self, ruta_local: str, carpeta_destino: str, usuario_id: str
     ) -> Dict[str, Any]:
         """
-        Sube un archivo a OneDrive.
+        Sube un archivo a OneDrive. Usa PUT simple para archivos pequeños (<4MB)
+        y upload sessions con chunks para archivos grandes (>=4MB).
 
         Args:
             ruta_local: Ruta del archivo local a subir
@@ -262,47 +270,196 @@ class GraphClient:
             requests.HTTPError: Si la subida falla
         """
         ruta_local_path = Path(ruta_local)
-        
-        # Validación: verificar que el archivo existe
+
         if not ruta_local_path.exists():
             raise FileNotFoundError(f"El archivo no existe: {ruta_local}")
-        
+
         if not ruta_local_path.is_file():
             raise ValueError(f"La ruta no es un archivo: {ruta_local}")
-        
+
         nombre_archivo = ruta_local_path.name
         tamaño_archivo = ruta_local_path.stat().st_size
         tamaño_mb = tamaño_archivo / (1024 * 1024)
-        
-        # Validación: verificar que el archivo no está vacío
+
         if tamaño_archivo == 0:
             raise ValueError(f"El archivo está vacío: {ruta_local}")
-        
+
         inicio_tiempo = time.time()
-        self.logger.info(f"[ONEDRIVE] Subiendo archivo: {nombre_archivo} ({tamaño_mb:.2f} MB) a {carpeta_destino}")
-        
+
+        if tamaño_archivo >= self.UPLOAD_SESSION_THRESHOLD:
+            self.logger.info(
+                f"[ONEDRIVE] Subiendo archivo grande via upload session: "
+                f"{nombre_archivo} ({tamaño_mb:.2f} MB) a {carpeta_destino}"
+            )
+            resultado = self._subir_con_upload_session(
+                ruta_local_path, carpeta_destino, usuario_id
+            )
+        else:
+            self.logger.info(
+                f"[ONEDRIVE] Subiendo archivo: {nombre_archivo} ({tamaño_mb:.2f} MB) a {carpeta_destino}"
+            )
+            resultado = self._subir_put_simple(
+                ruta_local_path, carpeta_destino, usuario_id
+            )
+
+        tiempo_transcurrido = time.time() - inicio_tiempo
+        self.logger.info(
+            f"[ONEDRIVE] Archivo {nombre_archivo} subido exitosamente en {tiempo_transcurrido:.2f}s"
+        )
+        return resultado
+
+    def _subir_put_simple(
+        self, ruta_local_path: Path, carpeta_destino: str, usuario_id: str
+    ) -> Dict[str, Any]:
+        """Sube un archivo pequeño (<4MB) usando PUT simple."""
+        nombre_archivo = ruta_local_path.name
         try:
             with open(ruta_local_path, "rb") as f:
                 contenido = f.read()
-            
+
             endpoint = f"/users/{usuario_id}/drive/root:{carpeta_destino}/{nombre_archivo}:/content"
-            
-            resultado = self.put(endpoint, data=contenido, content_type="application/pdf") or {}
-            
-            tiempo_transcurrido = time.time() - inicio_tiempo
-            self.logger.info(f"[ONEDRIVE] Archivo {nombre_archivo} subido exitosamente en {tiempo_transcurrido:.2f}s")
-            
-            return resultado
+            return self.put(endpoint, data=contenido, content_type="application/pdf") or {}
         except Exception as e:
-            tiempo_transcurrido = time.time() - inicio_tiempo
-            self.logger.error(f"[ONEDRIVE] Error subiendo archivo {nombre_archivo} después de {tiempo_transcurrido:.2f}s: {e}")
+            self.logger.error(f"[ONEDRIVE] Error en PUT simple para {nombre_archivo}: {e}")
             raise
+
+    def _subir_con_upload_session(
+        self, ruta_local_path: Path, carpeta_destino: str, usuario_id: str,
+        max_reintentos: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Sube un archivo grande usando Microsoft Graph upload sessions (resumable upload).
+        Soporta archivos de cualquier tamaño. El archivo se sube en chunks de ~3MB.
+
+        Args:
+            ruta_local_path: Path del archivo local
+            carpeta_destino: Ruta de la carpeta en OneDrive
+            usuario_id: ID o email del usuario
+            max_reintentos: Número máximo de reintentos por chunk fallido
+
+        Returns:
+            Información del archivo subido
+        """
+        nombre_archivo = ruta_local_path.name
+        tamaño_archivo = ruta_local_path.stat().st_size
+
+        # 1. Crear upload session
+        endpoint = (
+            f"/users/{usuario_id}/drive/root:"
+            f"{carpeta_destino}/{nombre_archivo}:/createUploadSession"
+        )
+        session_body = {
+            "item": {
+                "@microsoft.graph.conflictBehavior": "replace",
+                "name": nombre_archivo,
+            }
+        }
+
+        session_response = self.post(endpoint, data=session_body)
+        upload_url = session_response.get("uploadUrl")
+
+        if not upload_url:
+            raise RuntimeError(
+                f"No se obtuvo uploadUrl para el archivo {nombre_archivo}"
+            )
+
+        self.logger.info(
+            f"[ONEDRIVE] Upload session creada para {nombre_archivo} "
+            f"({tamaño_archivo / (1024*1024):.2f} MB)"
+        )
+
+        # 2. Subir en chunks
+        chunk_size = self.UPLOAD_CHUNK_SIZE
+        total_chunks = math.ceil(tamaño_archivo / chunk_size)
+        resultado = {}
+
+        try:
+            with open(ruta_local_path, "rb") as f:
+                chunk_num = 0
+                offset = 0
+
+                while offset < tamaño_archivo:
+                    chunk_num += 1
+                    bytes_restantes = tamaño_archivo - offset
+                    tamaño_chunk_actual = min(chunk_size, bytes_restantes)
+
+                    chunk_data = f.read(tamaño_chunk_actual)
+                    fin = offset + tamaño_chunk_actual - 1
+
+                    content_range = f"bytes {offset}-{fin}/{tamaño_archivo}"
+
+                    headers = {
+                        "Content-Length": str(tamaño_chunk_actual),
+                        "Content-Range": content_range,
+                    }
+
+                    # Reintentos por chunk
+                    for intento in range(1, max_reintentos + 1):
+                        try:
+                            response = requests.put(
+                                upload_url,
+                                headers=headers,
+                                data=chunk_data,
+                                timeout=120,
+                            )
+                            response.raise_for_status()
+                            break
+                        except (requests.RequestException, requests.HTTPError) as e:
+                            if intento < max_reintentos:
+                                espera = intento * 5
+                                self.logger.warning(
+                                    f"[ONEDRIVE] Error en chunk {chunk_num}/{total_chunks} "
+                                    f"(intento {intento}/{max_reintentos}): {e}. "
+                                    f"Reintentando en {espera}s..."
+                                )
+                                time.sleep(espera)
+                            else:
+                                self.logger.error(
+                                    f"[ONEDRIVE] Chunk {chunk_num}/{total_chunks} falló "
+                                    f"después de {max_reintentos} intentos"
+                                )
+                                # Cancelar la sesión
+                                self._cancelar_upload_session(upload_url)
+                                raise
+
+                    # 200/201 = upload completo, 202 = chunk aceptado, continuar
+                    if response.status_code in (200, 201):
+                        resultado = response.json() if response.content else {}
+                        self.logger.info(
+                            f"[ONEDRIVE] Upload completo: chunk {chunk_num}/{total_chunks}"
+                        )
+                    else:
+                        self.logger.debug(
+                            f"[ONEDRIVE] Chunk {chunk_num}/{total_chunks} subido "
+                            f"({content_range})"
+                        )
+
+                    offset += tamaño_chunk_actual
+        except Exception as e:
+            self._cancelar_upload_session(upload_url)
+            raise RuntimeError(
+                f"Error durante upload session de {nombre_archivo}: {e}"
+            ) from e
+
+        return resultado
+
+    def _cancelar_upload_session(self, upload_url: str) -> None:
+        """Cancela una upload session en curso."""
+        try:
+            requests.delete(upload_url, timeout=10)
+            self.logger.info("[ONEDRIVE] Upload session cancelada")
+        except Exception:
+            self.logger.warning("[ONEDRIVE] No se pudo cancelar la upload session")
 
     def subir_carpeta_completa(
         self, ruta_carpeta_local: str, carpeta_destino: str, usuario_id: str
     ) -> Dict[str, Any]:
         """
-        Sube una carpeta completa a OneDrive (recursivo).
+        Sube una carpeta completa a OneDrive (recursivo) con subida en paralelo.
+
+        Primero crea todas las subcarpetas necesarias de forma secuencial,
+        luego sube los archivos en paralelo usando un ThreadPoolExecutor.
+        El token se renueva automáticamente en cada request para evitar 401.
 
         Args:
             ruta_carpeta_local: Ruta de la carpeta local
@@ -318,76 +475,110 @@ class GraphClient:
         carpeta_local = Path(ruta_carpeta_local)
         if not carpeta_local.is_dir():
             raise ValueError(f"{ruta_carpeta_local} no es una carpeta")
-        
+
         carpeta_destino_clean = carpeta_destino.rstrip("/")
         carpeta_destino_path = f"{carpeta_destino_clean}/{carpeta_local.name}"
-        
-        # TODO: Comentado temporalmente - la eliminación de carpetas está generando errores 404
-        # Verificar si la carpeta destino ya existe y eliminarla si es necesario
-        # self.logger.info(f"[ONEDRIVE] Verificando si la carpeta destino ya existe: {carpeta_destino_path}")
-        # carpeta_eliminada = self.eliminar_carpeta_onedrive(carpeta_destino_path, usuario_id)
-        # if carpeta_eliminada:
-        #     self.logger.info(f"[ONEDRIVE] Carpeta existente eliminada antes de subir nuevos documentos: {carpeta_destino_path}")
-        
+
         # Obtener lista de archivos antes de empezar
         archivos = [item for item in carpeta_local.rglob("*") if item.is_file()]
         total_archivos = len(archivos)
-        
+
         # Calcular tamaño total
         tamaño_total = sum(f.stat().st_size for f in archivos)
         tamaño_total_mb = tamaño_total / (1024 * 1024)
-        
+
         self.logger.info(f"[ONEDRIVE] Iniciando subida de carpeta: {ruta_carpeta_local} -> {carpeta_destino_path}")
         self.logger.info(f"[ONEDRIVE] Total de archivos a subir: {total_archivos}")
         self.logger.info(f"[ONEDRIVE] Tamaño total: {tamaño_total_mb:.2f} MB")
-        
+
         # Crear carpeta destino principal
         self._crear_carpeta_onedrive(carpeta_destino_path, usuario_id)
-        
-        # Contadores para resumen
+
+        # Pre-crear TODAS las subcarpetas necesarias de forma secuencial
+        # (evita race conditions al crear carpetas en paralelo)
+        subcarpetas = set()
+        for item in archivos:
+            ruta_relativa = item.relative_to(carpeta_local)
+            carpeta_padre = str(ruta_relativa.parent).replace("\\", "/")
+            if carpeta_padre != ".":
+                subcarpetas.add(carpeta_padre)
+
+        for subcarpeta in sorted(subcarpetas):
+            carpeta_completa = f"{carpeta_destino_path}/{subcarpeta}"
+            self._crear_carpeta_onedrive(carpeta_completa, usuario_id)
+
+        # Preparar lista de tareas (archivo, carpeta_destino)
+        tareas_subida = []
+        for item in archivos:
+            ruta_relativa = item.relative_to(carpeta_local)
+            carpeta_padre = str(ruta_relativa.parent).replace("\\", "/")
+            carpeta_completa = (
+                f"{carpeta_destino_path}/{carpeta_padre}"
+                if carpeta_padre != "."
+                else carpeta_destino_path
+            )
+            tareas_subida.append((item, carpeta_completa))
+
         archivos_exitosos = 0
         archivos_fallidos = 0
         archivos_fallidos_detalle = []
-        
+
         inicio_tiempo_total = time.time()
-        
-        # Subir cada archivo
-        for idx, item in enumerate(archivos, 1):
-            try:
-                ruta_relativa = item.relative_to(carpeta_local)
-                carpeta_padre = str(ruta_relativa.parent).replace("\\", "/")
-                carpeta_completa = f"{carpeta_destino_path}/{carpeta_padre}" if carpeta_padre != "." else carpeta_destino_path
-                
-                # Crear subcarpetas si es necesario
-                if carpeta_padre != ".":
-                    self._crear_carpeta_onedrive(carpeta_completa, usuario_id)
-                
-                self.logger.info(f"[ONEDRIVE] Subiendo archivo {idx}/{total_archivos}: {item.name}")
-                self.subir_a_onedrive(str(item), carpeta_completa, usuario_id)
-                archivos_exitosos += 1
-                
-            except Exception as e:
-                archivos_fallidos += 1
-                nombre_archivo = item.name
-                archivos_fallidos_detalle.append(f"{nombre_archivo}: {str(e)}")
-                self.logger.error(f"[ONEDRIVE] Error subiendo archivo {idx}/{total_archivos} ({nombre_archivo}): {e}")
-                # Continuar con el siguiente archivo en lugar de detener todo el proceso
-        
+
+        # Subir archivos en paralelo
+        num_workers = min(self.MAX_UPLOAD_WORKERS, total_archivos) if total_archivos > 0 else 1
+        self.logger.info(f"[ONEDRIVE] Usando {num_workers} workers para subida en paralelo")
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            future_to_archivo = {}
+            for idx, (item, carpeta_completa) in enumerate(tareas_subida, 1):
+                future = executor.submit(
+                    self._subir_archivo_worker,
+                    str(item), carpeta_completa, usuario_id, idx, total_archivos
+                )
+                future_to_archivo[future] = item
+
+            for future in as_completed(future_to_archivo):
+                item = future_to_archivo[future]
+                try:
+                    future.result()
+                    archivos_exitosos += 1
+                except Exception as e:
+                    archivos_fallidos += 1
+                    archivos_fallidos_detalle.append(f"{item.name}: {str(e)}")
+                    self.logger.error(
+                        f"[ONEDRIVE] Error subiendo archivo ({item.name}): {e}"
+                    )
+
         tiempo_total = time.time() - inicio_tiempo_total
-        
+
         # Resumen final
-        self.logger.info(f"[ONEDRIVE] Resumen de subida: {total_archivos} archivos procesados - {archivos_exitosos} exitosos, {archivos_fallidos} fallidos")
+        self.logger.info(
+            f"[ONEDRIVE] Resumen de subida: {total_archivos} archivos procesados - "
+            f"{archivos_exitosos} exitosos, {archivos_fallidos} fallidos"
+        )
         self.logger.info(f"[ONEDRIVE] Tiempo total de subida: {tiempo_total:.2f}s")
-        
+
         if archivos_fallidos > 0:
             self.logger.warning(f"[ONEDRIVE] Archivos fallidos: {', '.join(archivos_fallidos_detalle)}")
-        
+
         # Si todos los archivos fallaron, lanzar excepción
         if archivos_exitosos == 0 and total_archivos > 0:
-            raise RuntimeError(f"Todos los archivos fallaron al subir. Errores: {', '.join(archivos_fallidos_detalle)}")
-        
+            raise RuntimeError(
+                f"Todos los archivos fallaron al subir. Errores: {', '.join(archivos_fallidos_detalle)}"
+            )
+
         info_carpeta = self._obtener_info_carpeta(carpeta_destino_path, usuario_id)
         return info_carpeta
+
+    def _subir_archivo_worker(
+        self, ruta_local: str, carpeta_destino: str, usuario_id: str,
+        idx: int, total: int
+    ) -> Dict[str, Any]:
+        """Worker para subir un archivo individual (usado por ThreadPoolExecutor)."""
+        nombre = Path(ruta_local).name
+        self.logger.info(f"[ONEDRIVE] Subiendo archivo {idx}/{total}: {nombre}")
+        return self.subir_a_onedrive(ruta_local, carpeta_destino, usuario_id)
 
     def _crear_carpeta_onedrive(self, ruta_carpeta: str, usuario_id: str) -> Dict[str, Any]:
         """Crea una carpeta en OneDrive si no existe."""
