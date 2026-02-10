@@ -57,37 +57,36 @@ class CRMClient:
         """
         self.authenticator = authenticator
         self.base_url = base_url.rstrip("/")
-        self._token: str | None = None
 
     def _get_token(self) -> str:
         """
         Obtiene un token válido para Dynamics 365.
+        Siempre solicita al authenticator, que internamente
+        maneja el cache y la renovación automática del token via Azure SDK.
 
         Returns:
             Token de acceso
         """
-        if self._token is None:
-            resource_url = self.base_url.split(RUTA_API)[0]
-            scope = f"{resource_url}{RUTA_DEFAULT_SCOPE}"
-            
-            if not scope.startswith("https://"):
-                raise ValueError(f"Scope inválido generado: {scope}")
-            
-            try:
-                self._token = self.authenticator.get_token(scope=scope)
-            except Exception as e:
-                error_msg = str(e)
-                if "AADSTS7000215" in error_msg or "Invalid client secret" in error_msg:
-                    raise ValueError(
-                        f"Error de autenticación con Dynamics 365:\n"
-                        f"  - Verifica que el secret no haya expirado\n"
-                        f"  - Verifica que estés usando el Secret VALUE (no el Secret ID)\n"
-                        f"  - El secret debe estar activo en Azure Portal\n"
-                        f"  - Scope usado: {scope}\n"
-                        f"  - Error original: {error_msg[:200]}"
-                    ) from e
-                raise
-        return self._token
+        resource_url = self.base_url.split(RUTA_API)[0]
+        scope = f"{resource_url}{RUTA_DEFAULT_SCOPE}"
+
+        if not scope.startswith("https://"):
+            raise ValueError(f"Scope inválido generado: {scope}")
+
+        try:
+            return self.authenticator.get_token(scope=scope)
+        except Exception as e:
+            error_msg = str(e)
+            if "AADSTS7000215" in error_msg or "Invalid client secret" in error_msg:
+                raise ValueError(
+                    f"Error de autenticación con Dynamics 365:\n"
+                    f"  - Verifica que el secret no haya expirado\n"
+                    f"  - Verifica que estés usando el Secret VALUE (no el Secret ID)\n"
+                    f"  - El secret debe estar activo en Azure Portal\n"
+                    f"  - Scope usado: {scope}\n"
+                    f"  - Error original: {error_msg[:200]}"
+                ) from e
+            raise
 
     def _get_headers(self) -> dict[str, str]:
         """

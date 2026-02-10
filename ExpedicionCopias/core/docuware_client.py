@@ -32,6 +32,9 @@ from ExpedicionCopias.core.constants import (
 class DocuWareClient:
     """Cliente para interactuar con DocuWare API."""
 
+    # Margen de seguridad en segundos para renovar el token antes de que expire
+    _TOKEN_REFRESH_MARGIN_SECONDS = 300  # 5 minutos
+
     def __init__(self, config: Dict[str, Any], rules_validator: ExcepcionesValidator, incluir_caratula: bool = False) -> None:
         """
         Inicializa el cliente con configuración y validador de reglas.
@@ -54,6 +57,7 @@ class DocuWareClient:
             ssl._create_default_https_context = ssl._create_unverified_context
         
         self.access_token: Optional[str] = None
+        self._token_expires_at: float = 0.0
         self.organization_id: Optional[str] = None
         self.file_cabinet_id: Optional[str] = None
         self.search_dialog_id: Optional[str] = None
@@ -96,18 +100,32 @@ class DocuWareClient:
         # Este punto no debería alcanzarse, pero por seguridad
         raise ConnectionError("Todos los reintentos fallaron")
 
+    def _token_vigente(self) -> bool:
+        """
+        Verifica si el token actual está vigente (no ha expirado ni está próximo a expirar).
+
+        Returns:
+            True si el token es vigente, False si debe renovarse
+        """
+        if not self.access_token:
+            return False
+        return time.time() < (self._token_expires_at - self._TOKEN_REFRESH_MARGIN_SECONDS)
+
     def _get_headers(self) -> Dict[str, str]:
         """
         Obtiene los headers con el token de autenticación.
+        Si el token está próximo a expirar, se re-autentica automáticamente.
 
         Returns:
             Diccionario con headers de autenticación
 
         Raises:
-            ValueError: Si no hay token de acceso
+            ValueError: Si no hay token de acceso y no se puede autenticar
         """
-        if not self.access_token:
-            raise ValueError("No hay token de acceso. Debe autenticarse primero.")
+        if not self._token_vigente():
+            if self.access_token:
+                self.logger.info("[AUTH] Token próximo a expirar, renovando...")
+            self.autenticar()
         return {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.access_token}"
@@ -211,9 +229,16 @@ class DocuWareClient:
         
         token_data = response.json()
         self.access_token = token_data.get('access_token')
-        
+
         if not self.access_token:
             raise ValueError("No se recibió access_token en la respuesta")
+
+        # Calcular momento de expiración del token
+        expires_in = token_data.get('expires_in', 3600)
+        try:
+            self._token_expires_at = time.time() + int(expires_in)
+        except (ValueError, TypeError):
+            self._token_expires_at = time.time() + 3600
         
         self.logger.info("[AUTH] Token de acceso obtenido exitosamente")
         self.logger.info("[AUTH] Inicializando IDs de organización, file cabinet y search dialog...")
@@ -293,6 +318,7 @@ class DocuWareClient:
         finally:
             # Siempre limpiar el token local, incluso si la revocación falló
             self.access_token = None
+            self._token_expires_at = 0.0
             self.logger.debug("[LOGOUT] Token local limpiado")
 
     def _inicializar_ids(self) -> None:
