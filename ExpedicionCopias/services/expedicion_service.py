@@ -306,39 +306,39 @@ class ExpedicionService:
                 config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
                 tipo_notificacion = "CopiasOficiales"
             
-            email_responsable = config_seccion.get("emailResponsable", "")
-            
-            if not email_responsable:
+            emails_responsable = self._normalizar_email_responsable(config_seccion.get("emailResponsable", ""))
+
+            if not emails_responsable:
                 self.logger.warning(f"emailResponsable no está configurado para {tipo}. No se enviará notificación de error de conexión.")
                 return
-            
+
             # Obtener plantilla de notificación
             notificaciones_config = self.config.get("Notificaciones", {})
             error_config = notificaciones_config.get("ErrorConexion", {})
             plantilla_config = error_config.get(tipo_notificacion, {})
-            
+
             if not plantilla_config:
                 self.logger.warning(f"Plantilla de notificación de error de conexión no encontrada para {tipo}. No se enviará notificación.")
                 return
-            
+
             asunto = plantilla_config.get("asunto", "")
             cuerpo = plantilla_config.get("cuerpo", "")
-            
+
             if not asunto or not cuerpo:
                 self.logger.warning(f"Plantilla de notificación de error de conexión incompleta para {tipo}. No se enviará notificación.")
                 return
-            
+
             # Reemplazar placeholders
             fecha_error = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cuerpo = cuerpo.replace("{fecha_error}", fecha_error)
             cuerpo = cuerpo.replace("{servicio_fallido}", servicio_fallido)
             cuerpo = cuerpo.replace("{mensaje_error}", mensaje_error)
-            
+
             # Agregar firma al cuerpo
             cuerpo_con_firma = self._agregar_firma(cuerpo)
-            
+
             # Enviar email
-            destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
+            destinatarios = self._obtener_destinatarios_por_modo(emails_responsable)
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
@@ -365,37 +365,37 @@ class ExpedicionService:
                 config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
                 tipo_notificacion = "CopiasOficiales"
             
-            email_responsable = config_seccion.get("emailResponsable", "")
-            
-            if not email_responsable:
+            emails_responsable = self._normalizar_email_responsable(config_seccion.get("emailResponsable", ""))
+
+            if not emails_responsable:
                 self.logger.warning(f"emailResponsable no está configurado para {tipo}. No se enviará notificación de inicio.")
                 return
-            
+
             # Obtener plantilla de notificación
             notificaciones_config = self.config.get("Notificaciones", {})
             inicio_config = notificaciones_config.get("InicioEjecucion", {})
             plantilla_config = inicio_config.get(tipo_notificacion, {})
-            
+
             if not plantilla_config:
                 self.logger.warning(f"Plantilla de notificación de inicio no encontrada para {tipo}. No se enviará notificación.")
                 return
-            
+
             asunto = plantilla_config.get("asunto", "")
             cuerpo = plantilla_config.get("cuerpo", "")
-            
+
             if not asunto or not cuerpo:
                 self.logger.warning(f"Plantilla de notificación de inicio incompleta para {tipo}. No se enviará notificación.")
                 return
-            
+
             # Reemplazar placeholders
             fecha_inicio = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cuerpo = cuerpo.replace("{fecha_inicio}", fecha_inicio)
-            
+
             # Agregar firma al cuerpo
             cuerpo_con_firma = self._agregar_firma(cuerpo)
 
             # Enviar email
-            destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
+            destinatarios = self._obtener_destinatarios_por_modo(emails_responsable)
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
                 asunto=asunto,
@@ -808,42 +808,44 @@ class ExpedicionService:
             item_id = info_item.get("id", "") if not item_id else item_id
             web_url = info_item.get("webUrl", "") if not web_url else web_url
         
-        # Obtener emailResponsable de la configuración para compartir
+        # ✅ CORRECCIÓN: Compartir con el CLIENTE (email_destino), no con emailResponsable
+        # Obtener emailResponsable solo para notificaciones de error
         copias_config = self.config.get("ReglasNegocio", {}).get("Copias", {})
-        email_responsable = copias_config.get("emailResponsable", "")
-        
-        # Intentar compartir el archivo con el responsable por correo
+        emails_responsable = self._normalizar_email_responsable(copias_config.get("emailResponsable", ""))
+
+        # Validar que email_destino (cliente) sea válido antes de compartir
+        if not email_destino or not self._validar_email(email_destino):
+            error_msg = f"El email del cliente (invt_correoelectronico) no es válido: '{email_destino}'"
+            self.logger.error(f"[CASO {case_id}] {error_msg}")
+            # Notificar al responsable
+            if emails_responsable:
+                self._enviar_email_regla_no_critica(caso, "Copias", error_msg)
+            raise ValueError(error_msg)
+
+        # Intentar compartir el archivo con el CLIENTE por correo
         link = ""
         try:
-            if email_responsable:
-                self.logger.info(f"[CASO {case_id}] Compartiendo archivo en OneDrive con responsable: {email_responsable}")
-                link_info = self.graph_client.compartir_con_usuario(
-                    item_id=item_id,
-                    usuario_id=usuario_email,
-                    email_destinatario=email_responsable,
-                    rol=PERMISO_READ
-                )
-                link = link_info.get("link", "")
-                if link:
-                    self.logger.info(f"[CASO {case_id}] Archivo compartido con responsable exitosamente. Invitación enviada por correo.")
-                else:
-                    # Si el link viene vacío, usar webUrl como fallback
-                    if web_url:
-                        link = web_url
-                        self.logger.warning(f"[CASO {case_id}] Link compartido vacío, usando webUrl como fallback: {link[:50]}...")
-                    else:
-                        self.logger.error(f"[CASO {case_id}] No se obtuvo link ni webUrl después de compartir")
+            self.logger.info(f"[CASO {case_id}] Compartiendo archivo en OneDrive con cliente: {email_destino}")
+            link_info = self.graph_client.compartir_con_usuario(
+                item_id=item_id,
+                usuario_id=usuario_email,
+                email_destinatario=email_destino,  # ✅ CORRECTO: compartir con el cliente
+                rol=PERMISO_READ
+            )
+            link = link_info.get("link", "")
+            if link:
+                self.logger.info(f"[CASO {case_id}] Archivo compartido con cliente exitosamente. Invitación enviada al correo: {email_destino}")
             else:
-                self.logger.warning(f"[CASO {case_id}] emailResponsable no configurado. Usando método de compartir tradicional.")
-                # Fallback al método anterior si no hay emailResponsable configurado
-                link_info = self.graph_client.compartir_carpeta(item_id, usuario_email)
-                link = link_info.get("link", "")
-                if link:
-                    self.logger.info(f"[CASO {case_id}] Archivo compartido exitosamente (método tradicional)")
+                # Si el link viene vacío, usar webUrl como fallback
+                if web_url:
+                    link = web_url
+                    self.logger.warning(f"[CASO {case_id}] Link compartido vacío, usando webUrl como fallback: {link[:50]}...")
+                else:
+                    self.logger.error(f"[CASO {case_id}] No se obtuvo link ni webUrl después de compartir")
         except Exception as e:
             error_msg = str(e)
-            self.logger.warning(f"[CASO {case_id}] No se pudo compartir el archivo en OneDrive: {error_msg}")
-            
+            self.logger.warning(f"[CASO {case_id}] No se pudo compartir el archivo en OneDrive con cliente: {error_msg}")
+
             # Usar webUrl como fallback
             if web_url:
                 link = web_url
@@ -851,9 +853,10 @@ class ExpedicionService:
             else:
                 # Si no hay webUrl, esto es un error crítico
                 raise ValueError(f"No se pudo obtener enlace del archivo en OneDrive. Error al compartir: {error_msg}")
-            
+
             # Enviar email al responsable notificando el error
-            self._enviar_email_error_compartir(caso, "Copias", error_msg, link)
+            if emails_responsable:
+                self._enviar_email_error_compartir(caso, "Copias", error_msg, link)
         
         # Validación final: si aún no hay link, usar webUrl o lanzar error
         if not link:
@@ -959,19 +962,19 @@ class ExpedicionService:
             config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
             subcategoria_id = ""
         
-        email_responsable = config_seccion.get("emailResponsable", "")
-        
-        if not email_responsable:
+        emails_responsable = self._normalizar_email_responsable(config_seccion.get("emailResponsable", ""))
+
+        if not emails_responsable:
             self.logger.warning(f"[CASO {case_id}] emailResponsable no está configurado para {tipo}. No se enviará email.")
             return
-        
+
         # Obtener plantilla
         plantilla = self._obtener_plantilla_email(tipo, subcategoria_id, "sinAdjuntos")
-        
+
         if not plantilla.get("asunto") or not plantilla.get("cuerpo"):
             self.logger.warning(f"[CASO {case_id}] Plantilla sinAdjuntos no encontrada o vacía para {tipo}. No se enviará email.")
             return
-        
+
         # Reemplazar placeholders en la plantilla
         # Usar radicado como nombre del caso
         nombre_caso = radicado
@@ -986,12 +989,12 @@ class ExpedicionService:
             asunto = plantilla["asunto"].replace("{numero_radicado}", radicado_oficial)
         else:
             asunto = plantilla["asunto"]
-        
+
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo)
-        
+
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
-        destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
+        destinatarios = self._obtener_destinatarios_por_modo(emails_responsable)
         
         try:
             self.graph_client.enviar_email(
@@ -1024,34 +1027,34 @@ class ExpedicionService:
         else:  # CopiasOficiales
             config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
         
-        email_responsable = config_seccion.get("emailResponsable", "")
-        
-        if not email_responsable:
+        emails_responsable = self._normalizar_email_responsable(config_seccion.get("emailResponsable", ""))
+
+        if not emails_responsable:
             self.logger.warning(f"[CASO {case_id}] emailResponsable no está configurado para {tipo}. No se enviará email.")
             return
-        
+
         # Obtener plantilla de reglas no críticas
         plantilla_config = config_seccion.get("PlantillaEmailReglasNoCriticas", {})
-        
+
         if not plantilla_config:
             self.logger.warning(MSG_PLANTILLA_REGLAS_NO_CRITICAS_NO_CONFIG.format(tipo=tipo))
             return
-        
+
         asunto = plantilla_config.get("asunto", PLANTILLA_REGLAS_NO_CRITICAS_ASUNTO)
         cuerpo = plantilla_config.get("cuerpo", "")
-        
+
         if not cuerpo:
             self.logger.warning(MSG_CUERPO_PLANTILLA_VACIO)
             return
-        
+
         # Reemplazar placeholder [Novedad identificada] con el mensaje específico
         cuerpo = cuerpo.replace("[Novedad identificada]", novedad)
-        
+
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo)
-        
+
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
-        destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
+        destinatarios = self._obtener_destinatarios_por_modo(emails_responsable)
         
         try:
             self.graph_client.enviar_email(
@@ -1087,12 +1090,12 @@ class ExpedicionService:
         else:  # CopiasOficiales
             config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
         
-        email_responsable = config_seccion.get("emailResponsable", "")
-        
-        if not email_responsable:
+        emails_responsable = self._normalizar_email_responsable(config_seccion.get("emailResponsable", ""))
+
+        if not emails_responsable:
             self.logger.warning(f"[CASO {case_id}] emailResponsable no está configurado para {tipo}. No se enviará email.")
             return
-        
+
         # Construir mensaje HTML
         # Usar sp_name para el identificador visible al usuario, con fallback a case_id
         nombre_caso = self._obtener_numero_radicado(caso, case_id)
@@ -1111,12 +1114,12 @@ class ExpedicionService:
 <p><strong>Nota:</strong> {PLANTILLA_ERROR_COMPARTIR_CONTINUACION}</p>
 <p>{PLANTILLA_ERROR_COMPARTIR_FIRMA}</p>
 </body></html>"""
-        
+
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo)
-        
+
         # Usar _obtener_destinatarios_por_modo para mantener lógica QA/PROD
-        destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
+        destinatarios = self._obtener_destinatarios_por_modo(emails_responsable)
         
         try:
             self.graph_client.enviar_email(
@@ -1450,42 +1453,39 @@ class ExpedicionService:
         
         web_url = info_carpeta.get("webUrl", "")
         case_id = caso.get("sp_documentoid", "N/A")
-        
-        # Para COPIAS OFICIALES, siempre usar emailResponsable del config
-        copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
-        email_responsable = copias_oficiales_config.get("emailResponsable", "")
-        
-        # En modo QA, usar emailQa de la configuración global
-        globales_config = self.config.get("Globales", {})
-        modo = globales_config.get("modo", "PROD")
-        
-        if modo.upper() == "QA":
-            email_qa = globales_config.get("emailQa", "")
-            if email_qa:
-                email_responsable = email_qa
-                self.logger.info(f"[CASO {case_id}] Modo QA: Usando emailQa ({email_qa}) para compartir")
-            else:
-                self.logger.warning(f"[CASO {case_id}] Modo QA pero emailQa no configurado. Usando emailResponsable del config")
-        
-        # Validar que emailResponsable esté configurado antes de compartir
-        if not email_responsable or not self._validar_email(email_responsable):
-            error_msg = f"[CASO {case_id}] emailResponsable no está configurado o no es válido para CopiasOficiales. Valor: '{email_responsable}'"
-            self.logger.error(error_msg)
+
+        # ✅ CORRECCIÓN: Primero obtener y validar el email del CLIENTE (destino final)
+        email_destino, mensaje_error_email = self._validar_y_obtener_email_destino(caso, "CopiasOficiales")
+
+        if mensaje_error_email:
+            error_msg = f"El caso no tiene un email válido del cliente: {mensaje_error_email}"
+            self.logger.error(f"[CASO {case_id}] {error_msg}")
+            # Notificar al responsable
+            copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+            emails_responsable = self._normalizar_email_responsable(copias_oficiales_config.get("emailResponsable", ""))
+            if emails_responsable:
+                self._enviar_email_regla_no_critica(caso, "CopiasOficiales", error_msg)
             raise ValueError(error_msg)
-        
-        # Intentar compartir la carpeta con emailResponsable
+
+        self.logger.info(f"[CASO {case_id}] Email del cliente validado: {email_destino}")
+
+        # Obtener emailResponsable solo para notificaciones de error
+        copias_oficiales_config = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
+        emails_responsable = self._normalizar_email_responsable(copias_oficiales_config.get("emailResponsable", ""))
+
+        # Intentar compartir la carpeta con el CLIENTE por correo
         link = ""
         try:
-            self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id}) con emailResponsable: {email_responsable}")
+            self.logger.info(f"[ONEDRIVE] Compartiendo carpeta (ID: {carpeta_id}) con cliente: {email_destino}")
             link_info = self.graph_client.compartir_con_usuario(
                 item_id=carpeta_id,
                 usuario_id=usuario_email,
-                email_destinatario=email_responsable,
+                email_destinatario=email_destino,  # ✅ CORRECTO: compartir con el cliente
                 rol=PERMISO_READ
             )
             link = link_info.get("link", "")
             if link:
-                self.logger.info(f"[ONEDRIVE] Carpeta compartida con emailResponsable exitosamente. Invitación enviada por correo.")
+                self.logger.info(f"[ONEDRIVE] Carpeta compartida con cliente exitosamente. Invitación enviada al correo: {email_destino}")
             else:
                 # Si el link viene vacío, usar webUrl como fallback
                 if web_url:
@@ -1495,8 +1495,8 @@ class ExpedicionService:
                     self.logger.error(f"[CASO {case_id}] No se obtuvo link ni webUrl después de compartir")
         except Exception as e:
             error_msg = str(e)
-            self.logger.warning(f"[CASO {case_id}] No se pudo compartir la carpeta en OneDrive: {error_msg}")
-            
+            self.logger.warning(f"[CASO {case_id}] No se pudo compartir la carpeta en OneDrive con cliente: {error_msg}")
+
             # Usar webUrl como fallback
             if web_url:
                 link = web_url
@@ -1504,9 +1504,10 @@ class ExpedicionService:
             else:
                 # Si no hay webUrl, esto es un error crítico
                 raise ValueError(f"No se pudo obtener enlace de la carpeta en OneDrive. Error al compartir: {error_msg}")
-            
+
             # Enviar email al responsable notificando el error
-            self._enviar_email_error_compartir(caso, "CopiasOficiales", error_msg, link)
+            if emails_responsable:
+                self._enviar_email_error_compartir(caso, "CopiasOficiales", error_msg, link)
         
         # Validación final: si aún no hay link, usar webUrl o lanzar error
         if not link:
@@ -1539,19 +1540,10 @@ class ExpedicionService:
         
         # Agregar firma al cuerpo
         cuerpo_con_firma = self._agregar_firma(cuerpo_procesado)
-        
-        # Obtener y validar email_destino
-        email_destino, mensaje_error_email = self._validar_y_obtener_email_destino(caso, "CopiasOficiales")
 
-        if mensaje_error_email:
-            error_msg = f"El caso no tiene un email válido: {mensaje_error_email}"
-            self.logger.warning(f"[CASO {case_id}] {error_msg}")
-            # Enviar notificación al responsable
-            self._enviar_email_regla_no_critica(caso, "CopiasOficiales", error_msg)
-            # Lanzar excepción para que se maneje como error no crítico
-            raise ValueError(error_msg)
+        # email_destino ya fue obtenido y validado al inicio del método
+        self.logger.info(f"[CASO {case_id}] Preparando envío de email al cliente: {email_destino}")
 
-        self.logger.info(f"[CASO {case_id}] Email destino validado: {email_destino}")
         # Enviar el email
         self.graph_client.enviar_email(
             usuario_id=usuario_email,
@@ -2065,20 +2057,56 @@ class ExpedicionService:
     def _validar_email(self, email: str) -> bool:
         """
         Valida si una cadena es un email válido.
-        
+
         Args:
             email: Cadena a validar
-            
+
         Returns:
             True si es un email válido, False en caso contrario
         """
         if not email or not isinstance(email, str):
             return False
-        
+
         # Patrón básico de validación de email
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         return bool(re.match(pattern, email.strip()))
-    
+
+    def _normalizar_email_responsable(self, email_responsable: Any) -> List[str]:
+        """
+        Normaliza emailResponsable a una lista de emails válidos.
+        Soporta tanto string individual como lista de strings.
+        Filtra emails vacíos e inválidos.
+
+        Args:
+            email_responsable: Valor de emailResponsable del config (str o List[str])
+
+        Returns:
+            Lista de emails válidos, puede estar vacía si no hay válidos
+        """
+        if not email_responsable:
+            return []
+
+        # Si es un string, convertir a lista
+        if isinstance(email_responsable, str):
+            emails_raw = [email_responsable]
+        elif isinstance(email_responsable, list):
+            emails_raw = email_responsable
+        else:
+            self.logger.warning(f"emailResponsable tiene tipo inesperado: {type(email_responsable)}. Ignorando.")
+            return []
+
+        # Filtrar emails vacíos e inválidos
+        emails_validos = [
+            email.strip() for email in emails_raw
+            if email and isinstance(email, str) and self._validar_email(email.strip())
+        ]
+
+        if not emails_validos and emails_raw:
+            emails_str = str(emails_raw)
+            self.logger.warning(f"emailResponsable no contiene emails válidos. Valor original: {emails_str}")
+
+        return emails_validos
+
     def _obtener_email_usuario_crm(self, user_id: str) -> str:
         """
         Consulta el email de un usuario en CRM usando su GUID.
@@ -2394,12 +2422,12 @@ class ExpedicionService:
             else:  # CopiasOficiales
                 config_seccion = self.config.get("ReglasNegocio", {}).get("CopiasOficiales", {})
             
-            email_responsable = config_seccion.get("emailResponsable", "")
-            
-            if not email_responsable:
+            emails_responsable = self._normalizar_email_responsable(config_seccion.get("emailResponsable", ""))
+
+            if not emails_responsable:
                 self.logger.warning(MSG_EMAIL_RESPONSABLE_NO_CONFIG.format(tipo=tipo, accion="reporte por email"))
                 return
-            
+
             # Obtener plantilla de email desde config
             reportes_config = self.config.get("Reportes", {})
             plantilla_config = reportes_config.get("PlantillaEmail", {})
@@ -2431,8 +2459,8 @@ class ExpedicionService:
             cuerpo_con_firma = self._agregar_firma(cuerpo)
             
             # Obtener destinatarios según modo QA/PROD
-            destinatarios = self._obtener_destinatarios_por_modo(email_responsable)
-            
+            destinatarios = self._obtener_destinatarios_por_modo(emails_responsable)
+
             # Enviar email con adjunto
             self.graph_client.enviar_email(
                 usuario_id=self.config.get("GraphAPI", {}).get("user_email", ""),
